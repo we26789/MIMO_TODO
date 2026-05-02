@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(netstat -ano)",
+      "Bash(netsh advfirewall *)",
+      "Bash(powershell -Command \"Start-Process powershell -ArgumentList '-Command New-NetFirewallRule -DisplayName \\\\\"MIMO TODO 3000\\\\\" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 3000' -Verb RunAs -Wait\")",
+      "Bash(powershell -Command \"New-NetFirewallRule -DisplayName 'MIMO TODO 3000' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 3000\")"
+    ]
+  }
+}
