@@ -108,12 +108,15 @@
                     <span class="breadcrumb" id="breadcrumb">首页 / 仪表盘</span>
                 </div>
                 <div class="top-bar-right">
-                    <div class="search-box">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                            <circle cx="11" cy="11" r="7"/>
-                            <line x1="16.5" y1="16.5" x2="21" y2="21"/>
-                        </svg>
-                        <input type="text" placeholder="搜索日程..." id="searchInput" oninput="filterSchedules()">
+                    <div class="search-wrapper">
+                        <div class="search-box">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <circle cx="11" cy="11" r="7"/>
+                                <line x1="16.5" y1="16.5" x2="21" y2="21"/>
+                            </svg>
+                            <input type="text" placeholder="搜索日程..." id="searchInput" oninput="handleSearchInput()" autocomplete="off">
+                        </div>
+                        <div class="search-dropdown" id="searchDropdown"></div>
                     </div>
                     <div class="current-time" id="currentTime"></div>
                 </div>
@@ -321,40 +324,42 @@
                         </div>
                     </div>
 
-                    <!-- 智能输入（占位） -->
+                    <!-- 智能输入 -->
                     <div class="tab-content" id="content-smart">
-                        <div class="card form-card">
+                        <div class="card ai-chat-card">
                             <div class="card-header">
-                                <h3>智能日程创建</h3>
-                                <span class="badge">即将推出</span>
+                                <h3>AI 智能日程助手</h3>
+                                <div class="ai-header-actions">
+                                    <button class="btn-text" onclick="clearAiChat()">清空对话</button>
+                                </div>
                             </div>
-                            <div class="card-body">
-                                <div class="smart-placeholder">
-                                    <div class="smart-icon breathing">
-                                        <svg viewBox="0 0 64 64" fill="none" stroke="var(--purple)" stroke-width="1.5">
-                                            <path d="M32 4c-5 0-9 4-9 9v2h-6a3 3 0 0 0-3 3v28a3 3 0 0 0 3 3h24a3 3 0 0 0 3-3V18a3 3 0 0 0-3-3h-6v-2c0-5-4-9-9-9z"/>
-                                            <path d="M23 14v-3a9 9 0 0 1 18 0v3"/>
-                                            <circle cx="32" cy="32" r="5"/>
-                                            <path d="M32 27v-3"/>
-                                            <path d="M32 38v3"/>
-                                            <path d="M27 32h-3"/>
-                                            <path d="M38 32h3"/>
+                            <div class="ai-chat-body" id="aiChatBody">
+                                <div class="ai-welcome">
+                                    <div class="ai-avatar ai-avatar-bot">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                            <path d="M12 2a7 7 0 0 1 7 7c0 2.5-1.5 4.5-3 6l-1 3H9l-1-3c-1.5-1.5-3-3.5-3-6a7 7 0 0 1 7-7z"/>
+                                            <line x1="9" y1="21" x2="15" y2="21"/>
                                         </svg>
                                     </div>
-                                    <h3>AI 智能日程助手</h3>
-                                    <p>通过自然语言描述，AI 将自动识别并创建日程安排</p>
-                                    <div class="smart-features">
-                                        <div class="feature-tag">自然语言理解</div>
-                                        <div class="feature-tag">智能时间提取</div>
-                                        <div class="feature-tag">冲突检测</div>
-                                        <div class="feature-tag">优先级建议</div>
-                                    </div>
-                                    <div class="smart-input-mock">
-                                        <div class="mock-input">
-                                            <span class="mock-cursor"></span>
-                                            <span class="mock-text">例如：明天下午2点到4点开项目会议...</span>
+                                    <div class="ai-welcome-text">
+                                        <p>你好！我是 AI 日程助手，告诉我你想要安排什么，我会帮你智能创建日程。</p>
+                                        <div class="ai-examples">
+                                            <button class="ai-example-btn" onclick="sendAiExample(this)">明天下午2点到4点开项目会议，高优先级</button>
+                                            <button class="ai-example-btn" onclick="sendAiExample(this)">帮我安排下周的复习计划，周一到周五每天晚上8点到10点</button>
+                                            <button class="ai-example-btn" onclick="sendAiExample(this)">后天上午面试，非常紧急</button>
                                         </div>
                                     </div>
+                                </div>
+                            </div>
+                            <div class="ai-chat-footer">
+                                <div class="ai-input-wrapper">
+                                    <input type="text" class="form-input ai-input" id="aiInput" placeholder="描述你想创建的日程..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendAiMessage()}">
+                                    <button class="ai-send-btn" id="aiSendBtn" onclick="sendAiMessage()">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <line x1="22" y1="2" x2="11" y2="13"/>
+                                            <polygon points="22,2 15,22 11,13 2,9"/>
+                                        </svg>
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -462,6 +467,69 @@
             <div class="modal-footer">
                 <button class="btn btn-ghost" onclick="closeEditModal()">取消</button>
                 <button class="btn btn-primary" onclick="handleEditSubmit(event)">保存修改</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 日程详情模态框 -->
+    <div class="modal-overlay" id="detailModal">
+        <div class="modal detail-modal">
+            <div class="modal-header">
+                <h3 id="detailTitle">日程详情</h3>
+                <button class="modal-close" onclick="closeDetailModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="detail-section">
+                    <div class="detail-row">
+                        <span class="detail-label">状态</span>
+                        <span class="detail-value" id="detailStatus"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">时间</span>
+                        <span class="detail-value detail-time" id="detailTime"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">优先级</span>
+                        <span class="detail-value" id="detailPriority"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">紧急程度</span>
+                        <span class="detail-value" id="detailUrgency"></span>
+                    </div>
+                    <div class="detail-row" id="detailCompletedRow" style="display:none">
+                        <span class="detail-label">完成时间</span>
+                        <span class="detail-value" id="detailCompletedAt"></span>
+                    </div>
+                </div>
+                <div class="detail-section">
+                    <div class="detail-label-full">描述</div>
+                    <div class="detail-desc" id="detailDesc">暂无描述</div>
+                </div>
+                <div class="detail-section">
+                    <div class="detail-label-full">成果记录</div>
+                    <div class="achievements-list" id="achievementsList"></div>
+                    <div class="achievement-add">
+                        <div class="achievement-add-text">
+                            <input type="text" class="form-input" id="achievementTextInput" placeholder="添加文字成果...">
+                            <button class="btn btn-primary btn-sm" onclick="addTextAchievement()">添加</button>
+                        </div>
+                        <div class="achievement-add-file">
+                            <label class="file-upload-label">
+                                <input type="file" id="achievementFileInput" accept="image/*,video/*" onchange="uploadFileAchievement()" style="display:none">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                    <polyline points="17,8 12,3 7,8"/>
+                                    <line x1="12" y1="3" x2="12" y2="15"/>
+                                </svg>
+                                上传图片/视频
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" onclick="closeDetailModal()">关闭</button>
+                <button class="btn btn-primary" id="detailEditBtn" onclick="editFromDetail()">编辑</button>
             </div>
         </div>
     </div>

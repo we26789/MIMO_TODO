@@ -380,8 +380,9 @@ function renderSchedules() {
     container.innerHTML = list.map(s => {
         const urgencyClass = s.urgency || 'normal';
         const timeInfo = formatTimeDisplay(s.start, s.end);
+        const completedTime = s.completed && s.completed_at ? formatCompletedTime(s.completed_at) : '';
         return `
-        <div class="schedule-item ${s.completed ? 'completed' : ''}" data-id="${s.id}">
+        <div class="schedule-item ${s.completed ? 'completed' : ''}" data-id="${s.id}" onclick="openDetailModal('${s.id}')" style="cursor:pointer">
             <div class="schedule-priority ${s.priority}"></div>
             <div class="schedule-info">
                 <div class="schedule-title">${escapeHtml(s.title)}</div>
@@ -389,6 +390,7 @@ function renderSchedules() {
                 <div class="schedule-meta">
                     <span class="meta-tag priority-tag-${s.priority}">${s.priority === 'high' ? '高优先级' : s.priority === 'medium' ? '中优先级' : '低优先级'}</span>
                     <span class="meta-tag urgency-tag-${urgencyClass}">${getUrgencyLabel(s.urgency)}</span>
+                    ${completedTime ? `<span class="meta-tag completed-tag">${completedTime}</span>` : ''}
                 </div>
             </div>
             <div class="schedule-time">
@@ -396,16 +398,16 @@ function renderSchedules() {
                 <div class="schedule-time-date">${timeInfo.date}</div>
             </div>
             <div class="schedule-actions">
-                <button class="complete-btn ${s.completed ? 'done' : ''}" onclick="toggleComplete('${s.id}')" title="${s.completed ? '标为未完成' : '标为已完成'}">
+                <button class="complete-btn ${s.completed ? 'done' : ''}" onclick="event.stopPropagation(); toggleComplete('${s.id}')" title="${s.completed ? '标为未完成' : '标为已完成'}">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20,6 9,17 4,12"/></svg>
                 </button>
-                <button class="edit-btn" onclick="openEditModal('${s.id}')" title="编辑">
+                <button class="edit-btn" onclick="event.stopPropagation(); openEditModal('${s.id}')" title="编辑">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
                         <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
                     </svg>
                 </button>
-                <button class="delete-btn" onclick="deleteSchedule('${s.id}')" title="删除">
+                <button class="delete-btn" onclick="event.stopPropagation(); deleteSchedule('${s.id}')" title="删除">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <polyline points="3,6 5,6 21,6"/>
                         <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
@@ -483,10 +485,251 @@ function filterByStatus(status, btn) {
     renderSchedules();
 }
 
-// 搜索过滤
-function filterSchedules() {
-    searchQuery = document.getElementById('searchInput').value.trim();
-    renderSchedules();
+// ========================================
+// 模糊搜索（带下拉）
+// ========================================
+let searchTimeout = null;
+let currentDetailId = null;
+
+function handleSearchInput() {
+    const q = document.getElementById('searchInput').value.trim();
+    if (searchTimeout) clearTimeout(searchTimeout);
+    if (!q) {
+        hideSearchDropdown();
+        searchQuery = '';
+        renderSchedules();
+        return;
+    }
+    searchTimeout = setTimeout(() => fuzzySearch(q), 300);
+}
+
+async function fuzzySearch(q) {
+    try {
+        const res = await fetch(`${API}/search?q=${encodeURIComponent(q)}`);
+        const results = await res.json();
+        showSearchDropdown(results);
+    } catch (err) {
+        console.error('搜索失败:', err);
+        hideSearchDropdown();
+    }
+}
+
+function showSearchDropdown(results) {
+    const dropdown = document.getElementById('searchDropdown');
+    if (!results.length) {
+        dropdown.innerHTML = '<div class="search-dropdown-empty">未找到匹配日程</div>';
+        dropdown.classList.add('active');
+        return;
+    }
+    dropdown.innerHTML = results.slice(0, 8).map(s => {
+        const timeInfo = formatTimeDisplay(s.start, s.end);
+        const score = s.score || 0;
+        return `
+        <div class="search-dropdown-item ${s.completed ? 'completed' : ''}" onclick="openDetailFromSearch('${s.id}')">
+            <div class="search-dropdown-info">
+                <div class="search-dropdown-title">${escapeHtml(s.title)}</div>
+                <div class="search-dropdown-meta">
+                    <span class="meta-tag priority-tag-${s.priority}">${s.priority === 'high' ? '高' : s.priority === 'medium' ? '中' : '低'}</span>
+                    <span class="search-dropdown-time">${timeInfo.date} ${timeInfo.time}</span>
+                </div>
+            </div>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="16" height="16">
+                <polyline points="9,18 15,12 9,6"/>
+            </svg>
+        </div>`;
+    }).join('');
+    dropdown.classList.add('active');
+}
+
+function hideSearchDropdown() {
+    document.getElementById('searchDropdown').classList.remove('active');
+}
+
+function openDetailFromSearch(id) {
+    hideSearchDropdown();
+    document.getElementById('searchInput').value = '';
+    openDetailModal(id);
+}
+
+// 点击外部关闭搜索下拉
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('.search-wrapper')) hideSearchDropdown();
+});
+
+// ========================================
+// 日程详情模态框
+// ========================================
+async function openDetailModal(id) {
+    const s = schedules.find(x => x.id === id);
+    if (!s) return;
+    currentDetailId = id;
+
+    document.getElementById('detailTitle').textContent = s.title;
+
+    // 状态
+    const statusEl = document.getElementById('detailStatus');
+    if (s.completed) {
+        statusEl.innerHTML = '<span class="meta-tag completed-tag">已完成</span>';
+    } else {
+        statusEl.innerHTML = '<span class="meta-tag urgency-tag-normal">进行中</span>';
+    }
+
+    // 时间
+    const timeInfo = formatTimeDisplay(s.start, s.end);
+    document.getElementById('detailTime').textContent = `${timeInfo.date} ${timeInfo.time}`;
+
+    // 优先级
+    const pMap = { high: '高', medium: '中', low: '低' };
+    document.getElementById('detailPriority').innerHTML = `<span class="meta-tag priority-tag-${s.priority}">${pMap[s.priority] || '低'}</span>`;
+
+    // 紧急程度
+    const uMap = { critical: '非常紧急', urgent: '紧急', normal: '一般' };
+    const uClass = s.urgency || 'normal';
+    document.getElementById('detailUrgency').innerHTML = `<span class="meta-tag urgency-tag-${uClass}">${uMap[uClass] || '一般'}</span>`;
+
+    // 完成时间
+    const completedRow = document.getElementById('detailCompletedRow');
+    if (s.completed && s.completed_at) {
+        completedRow.style.display = '';
+        document.getElementById('detailCompletedAt').textContent = formatCompletedTime(s.completed_at);
+    } else {
+        completedRow.style.display = 'none';
+    }
+
+    // 描述
+    document.getElementById('detailDesc').textContent = s.description || '暂无描述';
+
+    // 加载成果
+    await loadAchievements(id);
+
+    document.getElementById('detailModal').classList.add('active');
+}
+
+function closeDetailModal() {
+    document.getElementById('detailModal').classList.remove('active');
+    currentDetailId = null;
+}
+
+function editFromDetail() {
+    if (!currentDetailId) return;
+    closeDetailModal();
+    openEditModal(currentDetailId);
+}
+
+// 点击模态框外部关闭
+document.getElementById('detailModal').addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) closeDetailModal();
+});
+
+// ========================================
+// 成果管理
+// ========================================
+async function loadAchievements(id) {
+    try {
+        const res = await fetch(`${API}/${id}/achievements`);
+        const achievements = await res.json();
+        renderAchievements(achievements);
+    } catch (err) {
+        console.error('加载成果失败:', err);
+        document.getElementById('achievementsList').innerHTML = '<div class="achievements-empty">暂无成果记录</div>';
+    }
+}
+
+function renderAchievements(achievements) {
+    const container = document.getElementById('achievementsList');
+    if (!achievements || !achievements.length) {
+        container.innerHTML = '<div class="achievements-empty">暂无成果记录，可在下方添加</div>';
+        return;
+    }
+    container.innerHTML = achievements.map(a => {
+        let content = '';
+        if (a.type === 'text') {
+            content = `<div class="achievement-text">${escapeHtml(a.text)}</div>`;
+        } else if (a.type === 'image') {
+            content = `<div class="achievement-image"><img src="/uploads/${a.file}" alt="${escapeHtml(a.originalName || '图片')}" onclick="window.open(this.src)"></div>`;
+        } else if (a.type === 'video') {
+            content = `<div class="achievement-video"><video src="/uploads/${a.file}" controls></video></div>`;
+        } else {
+            content = `<div class="achievement-file"><a href="/uploads/${a.file}" target="_blank">${escapeHtml(a.originalName || '文件')}</a></div>`;
+        }
+        const time = a.createdAt ? new Date(a.createdAt).toLocaleString('zh-CN') : '';
+        return `
+        <div class="achievement-item" data-ach-id="${a.id}">
+            <div class="achievement-header">
+                <span class="achievement-type-badge ${a.type}">${a.type === 'text' ? '文字' : a.type === 'image' ? '图片' : a.type === 'video' ? '视频' : '文件'}</span>
+                <span class="achievement-time">${time}</span>
+                <button class="achievement-delete" onclick="deleteAchievement('${a.id}')" title="删除">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            ${content}
+        </div>`;
+    }).join('');
+}
+
+async function addTextAchievement() {
+    if (!currentDetailId) return;
+    const input = document.getElementById('achievementTextInput');
+    const text = input.value.trim();
+    if (!text) { showToast('请输入成果内容', 'error'); return; }
+    try {
+        const res = await fetch(`${API}/${currentDetailId}/achievements`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text })
+        });
+        const data = await res.json();
+        if (data.success) {
+            input.value = '';
+            renderAchievements(data.achievements);
+            showToast('成果已添加');
+        }
+    } catch (err) {
+        showToast('添加失败', 'error');
+    }
+}
+
+async function uploadFileAchievement() {
+    if (!currentDetailId) return;
+    const fileInput = document.getElementById('achievementFileInput');
+    const file = fileInput.files[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+        const res = await fetch(`${API}/${currentDetailId}/achievements/upload`, {
+            method: 'POST',
+            body: formData
+        });
+        const data = await res.json();
+        if (data.success) {
+            fileInput.value = '';
+            renderAchievements(data.achievements);
+            showToast('文件上传成功');
+        } else {
+            showToast(data.error || '上传失败', 'error');
+        }
+    } catch (err) {
+        showToast('上传失败', 'error');
+    }
+}
+
+async function deleteAchievement(achId) {
+    if (!currentDetailId) return;
+    if (!confirm('确定要删除该成果吗？')) return;
+    try {
+        const res = await fetch(`${API}/${currentDetailId}/achievements/${achId}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) {
+            renderAchievements(data.achievements);
+            showToast('成果已删除');
+        }
+    } catch (err) {
+        showToast('删除失败', 'error');
+    }
 }
 
 // Toast 通知
@@ -507,6 +750,20 @@ function escapeHtml(str) {
     const div = document.createElement('div');
     div.textContent = str;
     return div.innerHTML;
+}
+
+// 格式化完成时间
+function formatCompletedTime(dateStr) {
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    const now = new Date();
+    const month = d.getMonth() + 1;
+    const day = d.getDate();
+    const h = String(d.getHours()).padStart(2, '0');
+    const min = String(d.getMinutes()).padStart(2, '0');
+    const isToday = d.toDateString() === now.toDateString();
+    if (isToday) return `完成于 今天 ${h}:${min}`;
+    return `完成于 ${month}/${day} ${h}:${min}`;
 }
 
 // 格式化时间显示
@@ -538,5 +795,206 @@ document.getElementById('editModal').addEventListener('click', (e) => {
 
 // 键盘快捷键
 document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeEditModal();
+    if (e.key === 'Escape') {
+        closeEditModal();
+        closeDetailModal();
+        hideSearchDropdown();
+    }
 });
+
+// ========================================
+// AI 智能日程创建
+// ========================================
+let aiSessionId = 'session_' + Date.now().toString(36);
+let aiProcessing = false;
+
+function sendAiExample(btn) {
+    const text = btn.textContent;
+    document.getElementById('aiInput').value = text;
+    sendAiMessage();
+}
+
+async function sendAiMessage() {
+    if (aiProcessing) return;
+    const input = document.getElementById('aiInput');
+    const message = input.value.trim();
+    if (!message) return;
+
+    aiProcessing = true;
+    input.value = '';
+    const sendBtn = document.getElementById('aiSendBtn');
+    sendBtn.disabled = true;
+
+    // 显示用户消息
+    renderAiMessage('user', message);
+
+    // 显示加载
+    const loadingId = 'loading_' + Date.now();
+    renderAiMessage('assistant', '<div class="ai-typing"><span></span><span></span><span></span></div>', loadingId);
+
+    try {
+        const res = await fetch('/api/ai/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message, sessionId: aiSessionId }),
+        });
+        const data = await res.json();
+
+        // 移除加载
+        const loadingEl = document.getElementById(loadingId);
+        if (loadingEl) loadingEl.remove();
+
+        if (!data.success) {
+            renderAiMessage('assistant', `<span class="ai-error">${escapeHtml(data.error || '请求失败')}</span>`);
+            return;
+        }
+
+        // 渲染 AI 文字回复
+        if (data.reply) {
+            renderAiMessage('assistant', formatAiReply(data.reply));
+        }
+
+        // 如果有解析出的日程，渲染确认卡片
+        if (data.schedules && data.schedules.length) {
+            renderAiSchedulePreview(data.schedules);
+        }
+    } catch (err) {
+        const loadingEl = document.getElementById(loadingId);
+        if (loadingEl) loadingEl.remove();
+        renderAiMessage('assistant', `<span class="ai-error">网络错误，请检查连接后重试</span>`);
+    } finally {
+        aiProcessing = false;
+        sendBtn.disabled = false;
+        input.focus();
+    }
+}
+
+function renderAiMessage(role, html, id) {
+    const body = document.getElementById('aiChatBody');
+    const isUser = role === 'user';
+    const div = document.createElement('div');
+    div.className = `ai-msg ${isUser ? 'ai-msg-user' : 'ai-msg-bot'}`;
+    if (id) div.id = id;
+    div.innerHTML = `
+        <div class="ai-avatar ${isUser ? 'ai-avatar-user' : 'ai-avatar-bot'}">
+            ${isUser
+                ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>'
+                : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2a7 7 0 0 1 7 7c0 2.5-1.5 4.5-3 6l-1 3H9l-1-3c-1.5-1.5-3-3.5-3-6a7 7 0 0 1 7-7z"/><line x1="9" y1="21" x2="15" y2="21"/></svg>'
+            }
+        </div>
+        <div class="ai-msg-content">${html}</div>
+    `;
+    body.appendChild(div);
+    body.scrollTop = body.scrollHeight;
+}
+
+function formatAiReply(text) {
+    return escapeHtml(text)
+        .replace(/\n/g, '<br>')
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+}
+
+function renderAiSchedulePreview(schedules) {
+    const body = document.getElementById('aiChatBody');
+    const div = document.createElement('div');
+    div.className = 'ai-msg ai-msg-bot';
+    div.innerHTML = `
+        <div class="ai-avatar ai-avatar-bot">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M12 2a7 7 0 0 1 7 7c0 2.5-1.5 4.5-3 6l-1 3H9l-1-3c-1.5-1.5-3-3.5-3-6a7 7 0 0 1 7-7z"/>
+                <line x1="9" y1="21" x2="15" y2="21"/>
+            </svg>
+        </div>
+        <div class="ai-msg-content">
+            <div class="ai-schedule-preview">
+                <div class="ai-preview-title">识别到 ${schedules.length} 个日程：</div>
+                ${schedules.map((s, i) => {
+                    const timeInfo = formatTimeDisplay(s.start, s.end);
+                    const pMap = { high: '高', medium: '中', low: '低' };
+                    const uMap = { critical: '非常紧急', urgent: '紧急', normal: '一般' };
+                    return `
+                    <div class="ai-preview-item">
+                        <div class="ai-preview-num">${i + 1}</div>
+                        <div class="ai-preview-info">
+                            <div class="ai-preview-name">${escapeHtml(s.title || '未命名')}</div>
+                            <div class="ai-preview-meta">
+                                <span class="meta-tag priority-tag-${s.priority || 'low'}">${pMap[s.priority] || '低'}</span>
+                                <span class="meta-tag urgency-tag-${s.urgency || 'normal'}">${uMap[s.urgency] || '一般'}</span>
+                                <span class="ai-preview-time">${timeInfo.date} ${timeInfo.time}</span>
+                            </div>
+                        </div>
+                    </div>`;
+                }).join('')}
+                <div class="ai-preview-actions">
+                    <button class="btn btn-primary btn-sm" onclick="confirmAiSchedules(this)" data-schedules='${escapeHtml(JSON.stringify(schedules))}'>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="20,6 9,17 4,12"/></svg>
+                        确认创建
+                    </button>
+                    <button class="btn btn-ghost btn-sm" onclick="this.closest('.ai-msg').remove()">取消</button>
+                </div>
+            </div>
+        </div>
+    `;
+    body.appendChild(div);
+    body.scrollTop = body.scrollHeight;
+}
+
+async function confirmAiSchedules(btn) {
+    const schedules = JSON.parse(btn.dataset.schedules);
+    btn.disabled = true;
+    btn.textContent = '创建中...';
+    try {
+        const res = await fetch('/api/ai/confirm', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ schedules }),
+        });
+        const data = await res.json();
+        if (data.success) {
+            btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="20,6 9,17 4,12"/></svg> 已创建 ' + data.created.length + ' 个日程';
+            btn.className = 'btn btn-sm';
+            btn.style.background = 'rgba(52,211,153,0.15)';
+            btn.style.color = 'var(--green)';
+            btn.style.borderColor = 'rgba(52,211,153,0.3)';
+            showToast('日程创建成功');
+            await loadSchedules();
+        } else {
+            showToast(data.error || '创建失败', 'error');
+            btn.disabled = false;
+            btn.textContent = '确认创建';
+        }
+    } catch (err) {
+        showToast('网络错误', 'error');
+        btn.disabled = false;
+        btn.textContent = '确认创建';
+    }
+}
+
+async function clearAiChat() {
+    try {
+        await fetch('/api/ai/clear', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionId: aiSessionId }),
+        });
+    } catch {}
+    aiSessionId = 'session_' + Date.now().toString(36);
+    const body = document.getElementById('aiChatBody');
+    body.innerHTML = `
+        <div class="ai-welcome">
+            <div class="ai-avatar ai-avatar-bot">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M12 2a7 7 0 0 1 7 7c0 2.5-1.5 4.5-3 6l-1 3H9l-1-3c-1.5-1.5-3-3.5-3-6a7 7 0 0 1 7-7z"/>
+                    <line x1="9" y1="21" x2="15" y2="21"/>
+                </svg>
+            </div>
+            <div class="ai-welcome-text">
+                <p>对话已清空，有什么日程需要安排？</p>
+                <div class="ai-examples">
+                    <button class="ai-example-btn" onclick="sendAiExample(this)">明天下午2点到4点开项目会议，高优先级</button>
+                    <button class="ai-example-btn" onclick="sendAiExample(this)">帮我安排下周的复习计划，周一到周五每天晚上8点到10点</button>
+                    <button class="ai-example-btn" onclick="sendAiExample(this)">后天上午面试，非常紧急</button>
+                </div>
+            </div>
+        </div>`;
+}
