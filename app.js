@@ -34,7 +34,6 @@ class ParticleSystem {
     }
 
     createParticle() {
-        // 橙色和紫色粒子混合
         const isOrange = Math.random() > 0.35;
         return {
             x: Math.random() * this.canvas.width,
@@ -82,7 +81,6 @@ class ParticleSystem {
                 const dy = p.y - p2.y;
                 const dist = Math.sqrt(dx * dx + dy * dy);
                 if (dist < 120) {
-                    // 连线颜色取两个粒子颜色的中间值
                     const mc = [(p.color[0] + p2.color[0]) / 2, (p.color[1] + p2.color[1]) / 2, (p.color[2] + p2.color[2]) / 2];
                     this.ctx.beginPath();
                     this.ctx.moveTo(p.x, p.y);
@@ -153,7 +151,6 @@ document.addEventListener('DOMContentLoaded', () => {
 async function loadSchedules() {
     try {
         schedules = await apiGet();
-        // 兼容：数据库字段 start_time -> start, end_time -> end
         schedules = schedules.map(s => ({
             ...s,
             start: s.start || s.start_time,
@@ -188,7 +185,6 @@ function switchPage(page) {
     document.getElementById('breadcrumb').textContent = breadcrumbs[page];
     if (page === 'dashboard') refreshDashboard();
     if (page === 'schedules') renderSchedules();
-    // 移动端切换页面后关闭菜单
     closeMobileMenu();
 }
 
@@ -566,7 +562,6 @@ async function openDetailModal(id) {
 
     document.getElementById('detailTitle').textContent = s.title;
 
-    // 状态
     const statusEl = document.getElementById('detailStatus');
     if (s.completed) {
         statusEl.innerHTML = '<span class="meta-tag completed-tag">已完成</span>';
@@ -574,20 +569,16 @@ async function openDetailModal(id) {
         statusEl.innerHTML = '<span class="meta-tag urgency-tag-normal">进行中</span>';
     }
 
-    // 时间
     const timeInfo = formatTimeDisplay(s.start, s.end);
     document.getElementById('detailTime').textContent = `${timeInfo.date} ${timeInfo.time}`;
 
-    // 优先级
     const pMap = { high: '高', medium: '中', low: '低' };
     document.getElementById('detailPriority').innerHTML = `<span class="meta-tag priority-tag-${s.priority}">${pMap[s.priority] || '低'}</span>`;
 
-    // 紧急程度
     const uMap = { critical: '非常紧急', urgent: '紧急', normal: '一般' };
     const uClass = s.urgency || 'normal';
     document.getElementById('detailUrgency').innerHTML = `<span class="meta-tag urgency-tag-${uClass}">${uMap[uClass] || '一般'}</span>`;
 
-    // 完成时间
     const completedRow = document.getElementById('detailCompletedRow');
     if (s.completed && s.completed_at) {
         completedRow.style.display = '';
@@ -596,10 +587,8 @@ async function openDetailModal(id) {
         completedRow.style.display = 'none';
     }
 
-    // 描述
     document.getElementById('detailDesc').textContent = s.description || '暂无描述';
 
-    // 加载成果
     await loadAchievements(id);
 
     document.getElementById('detailModal').classList.add('active');
@@ -825,10 +814,8 @@ async function sendAiMessage() {
     const sendBtn = document.getElementById('aiSendBtn');
     sendBtn.disabled = true;
 
-    // 显示用户消息
     renderAiMessage('user', message);
 
-    // 显示加载
     const loadingId = 'loading_' + Date.now();
     renderAiMessage('assistant', '<div class="ai-typing"><span></span><span></span><span></span></div>', loadingId);
 
@@ -840,7 +827,6 @@ async function sendAiMessage() {
         });
         const data = await res.json();
 
-        // 移除加载
         const loadingEl = document.getElementById(loadingId);
         if (loadingEl) loadingEl.remove();
 
@@ -849,12 +835,10 @@ async function sendAiMessage() {
             return;
         }
 
-        // 渲染 AI 文字回复
         if (data.reply) {
             renderAiMessage('assistant', formatAiReply(data.reply));
         }
 
-        // 如果有解析出的日程，渲染确认卡片
         if (data.schedules && data.schedules.length) {
             renderAiSchedulePreview(data.schedules);
         }
@@ -998,3 +982,463 @@ async function clearAiChat() {
             </div>
         </div>`;
 }
+
+// ========================================
+// 语音输入
+// ========================================
+let recognition = null;
+let isRecording = false;
+
+function initSpeechRecognition() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) return null;
+
+    const rec = new SpeechRecognition();
+    rec.lang = 'zh-CN';
+    rec.continuous = true;
+    rec.interimResults = true;
+
+    rec.onresult = (event) => {
+        const input = document.getElementById('aiInput');
+        let finalTranscript = '';
+        let interimTranscript = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+            const transcript = event.results[i][0].transcript;
+            if (event.results[i].isFinal) {
+                finalTranscript += transcript;
+            } else {
+                interimTranscript += transcript;
+            }
+        }
+        if (finalTranscript) {
+            input.value = (input.value + finalTranscript).trim();
+        }
+        const hint = document.getElementById('voiceInterimHint');
+        if (hint) {
+            hint.textContent = interimTranscript || (finalTranscript ? '已识别，继续说话...' : '正在聆听...');
+            hint.style.display = 'block';
+        }
+    };
+
+    rec.onerror = (event) => {
+        console.error('语音识别错误:', event.error);
+        if (event.error === 'not-allowed') {
+            showToast('请允许麦克风权限', 'error');
+        } else if (event.error === 'no-speech') {
+            showToast('未检测到语音，请重试', 'error');
+        } else if (event.error !== 'aborted') {
+            showToast('语音识别出错: ' + event.error, 'error');
+        }
+        stopRecording();
+    };
+
+    rec.onend = () => {
+        if (isRecording) {
+            try { rec.start(); } catch {}
+        }
+    };
+
+    return rec;
+}
+
+function toggleVoiceInput() {
+    if (isRecording) {
+        stopRecording();
+    } else {
+        startRecording();
+    }
+}
+
+function startRecording() {
+    if (!recognition) {
+        recognition = initSpeechRecognition();
+    }
+    if (!recognition) {
+        showToast('当前浏览器不支持语音输入，请使用 Chrome 或 Edge', 'error');
+        return;
+    }
+
+    isRecording = true;
+    const btn = document.getElementById('aiVoiceBtn');
+    btn.classList.add('recording');
+    btn.querySelector('.mic-icon').style.display = 'none';
+    btn.querySelector('.stop-icon').style.display = 'block';
+
+    const input = document.getElementById('aiInput');
+    let hint = document.getElementById('voiceInterimHint');
+    if (!hint) {
+        hint = document.createElement('div');
+        hint.id = 'voiceInterimHint';
+        hint.className = 'voice-interim-hint';
+        input.parentNode.appendChild(hint);
+    }
+    hint.textContent = '正在聆听...';
+    hint.style.display = 'block';
+
+    try {
+        recognition.start();
+    } catch {}
+}
+
+function stopRecording() {
+    isRecording = false;
+    if (recognition) {
+        try { recognition.stop(); } catch {}
+    }
+    const btn = document.getElementById('aiVoiceBtn');
+    if (btn) {
+        btn.classList.remove('recording');
+        btn.querySelector('.mic-icon').style.display = 'block';
+        btn.querySelector('.stop-icon').style.display = 'none';
+    }
+    const hint = document.getElementById('voiceInterimHint');
+    if (hint) hint.style.display = 'none';
+}
+
+// ========================================
+// 日程提醒通知
+// ========================================
+const notifiedSchedules = new Set();
+let notificationTimer = null;
+
+function requestNotificationPermission() {
+    if (!('Notification' in window)) {
+        showNotificationBar('当前浏览器不支持系统通知，请使用 Chrome 或 Edge');
+        return;
+    }
+    if (Notification.permission === 'granted') return;
+    if (Notification.permission === 'denied') {
+        showNotificationBar('通知已被禁用，请在浏览器设置中允许通知');
+        return;
+    }
+    Notification.requestPermission().then(perm => {
+        if (perm !== 'granted') {
+            showNotificationBar('未允许通知，请点击地址栏左侧图标手动开启通知权限');
+        }
+    });
+}
+
+function showNotificationBar(msg) {
+    if (document.getElementById('notifPermissionBar')) return;
+    const bar = document.createElement('div');
+    bar.id = 'notifPermissionBar';
+    bar.className = 'notif-permission-bar';
+    bar.innerHTML = `
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+            <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+        </svg>
+        <span>${msg}</span>
+        <button onclick="requestNotificationPermission(); this.parentElement.remove()">开启通知</button>
+        <button onclick="this.parentElement.remove()" class="notif-bar-close">&times;</button>
+    `;
+    document.body.appendChild(bar);
+}
+
+function startNotificationChecker() {
+    requestNotificationPermission();
+    checkScheduleNotifications();
+    notificationTimer = setInterval(checkScheduleNotifications, 15000);
+}
+
+function checkScheduleNotifications() {
+    const now = new Date();
+    schedules.forEach(s => {
+        if (s.completed) return;
+        if (notifiedSchedules.has(s.id)) return;
+
+        const startTime = new Date(s.start);
+        const diff = startTime.getTime() - now.getTime();
+
+        if (diff <= 0 && diff > -5 * 60 * 1000) {
+            notifySchedule(s);
+            notifiedSchedules.add(s.id);
+        }
+        if (diff > 0 && diff <= 60 * 1000) {
+            notifyScheduleUpcoming(s, diff);
+            notifiedSchedules.add(s.id + '_upcoming');
+        }
+    });
+}
+
+function notifySchedule(schedule) {
+    const timeInfo = formatTimeDisplay(schedule.start, schedule.end);
+    const message = `${schedule.title} 现在应该开始了！`;
+
+    showNotificationPopup({
+        title: '日程提醒',
+        message,
+        time: `${timeInfo.date} ${timeInfo.time}`,
+        type: 'now',
+        scheduleId: schedule.id,
+    });
+
+    if ('Notification' in window && Notification.permission === 'granted') {
+        const n = new Notification('MIMO TODO - 日程提醒', {
+            body: message,
+            tag: 'schedule_' + schedule.id,
+            requireInteraction: true,
+            silent: false,
+        });
+        n.onclick = () => { window.focus(); n.close(); };
+    }
+
+    try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.frequency.value = 800;
+        gain.gain.value = 0.3;
+        osc.start();
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+        osc.stop(ctx.currentTime + 0.5);
+    } catch {}
+}
+
+function notifyScheduleUpcoming(schedule, diffMs) {
+    const minutes = Math.ceil(diffMs / 60000);
+    const timeInfo = formatTimeDisplay(schedule.start, schedule.end);
+    const message = `${schedule.title} 将在 ${minutes} 分钟后开始`;
+
+    showNotificationPopup({
+        title: '即将开始',
+        message,
+        time: `${timeInfo.date} ${timeInfo.time}`,
+        type: 'upcoming',
+        scheduleId: schedule.id,
+    });
+
+    if ('Notification' in window && Notification.permission === 'granted') {
+        const n = new Notification('MIMO TODO - 即将开始', {
+            body: message,
+            tag: 'upcoming_' + schedule.id,
+            silent: false,
+        });
+        n.onclick = () => { window.focus(); n.close(); };
+    }
+}
+
+function showNotificationPopup({ title, message, time, type, scheduleId }) {
+    const container = document.getElementById('notificationContainer');
+    const id = 'notif_' + Date.now();
+    const isNow = type === 'now';
+
+    const div = document.createElement('div');
+    div.className = `notification-popup ${isNow ? 'notif-urgent' : 'notif-upcoming'}`;
+    div.id = id;
+    div.innerHTML = `
+        <div class="notif-icon ${isNow ? 'notif-icon-urgent' : 'notif-icon-upcoming'}">
+            ${isNow
+                ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>'
+                : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>'
+            }
+        </div>
+        <div class="notif-body">
+            <div class="notif-title">${escapeHtml(title)}</div>
+            <div class="notif-message">${escapeHtml(message)}</div>
+            <div class="notif-time">${escapeHtml(time)}</div>
+        </div>
+        <div class="notif-actions">
+            <button class="notif-btn-primary" onclick="openDetailModal('${scheduleId}'); dismissNotification('${id}')">查看</button>
+            <button class="notif-btn-dismiss" onclick="dismissNotification('${id}')">关闭</button>
+        </div>
+    `;
+
+    container.appendChild(div);
+    requestAnimationFrame(() => div.classList.add('show'));
+    const timeout = isNow ? 15000 : 8000;
+    setTimeout(() => dismissNotification(id), timeout);
+}
+
+function dismissNotification(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.remove('show');
+    el.classList.add('hide');
+    setTimeout(() => el.remove(), 400);
+}
+
+// 加载日程后启动检查
+const originalLoadSchedules = loadSchedules;
+loadSchedules = async function() {
+    await originalLoadSchedules();
+    if (!notificationTimer) startNotificationChecker();
+};
+
+// ========================================
+// 音乐播放器 - MP3 文件播放
+// ========================================
+
+let musicTracks = [];
+let currentTrackIndex = 0;
+let musicMode = 'loop';
+let musicVolume = 0.6;
+let isMuted = false;
+let musicProgressTimer = null;
+const audio = new Audio();
+
+async function loadMusicTracks() {
+    try {
+        const res = await fetch('/api/music');
+        musicTracks = await res.json();
+        if (musicTracks.length > 0) {
+            updateTrackDisplay();
+        } else {
+            document.getElementById('musicTitle').textContent = '暂无音乐';
+            document.getElementById('musicArtist').textContent = '请放入 MP3 文件';
+        }
+    } catch (err) {
+        console.error('加载音乐列表失败:', err);
+    }
+}
+
+audio.addEventListener('ended', () => {
+    if (musicMode === 'single') {
+        audio.currentTime = 0;
+        audio.play();
+    } else {
+        musicNext();
+    }
+});
+
+audio.addEventListener('loadedmetadata', () => {
+    document.getElementById('musicTimeTotal').textContent = formatMusicTime(audio.duration);
+});
+
+audio.volume = musicVolume;
+
+function toggleMusic() {
+    if (audio.paused) {
+        startMusic();
+    } else {
+        pauseMusic();
+    }
+}
+
+function startMusic() {
+    if (musicTracks.length === 0) return;
+    if (!audio.src && musicTracks.length > 0) {
+        audio.src = musicTracks[currentTrackIndex].url;
+    }
+    audio.play();
+    updateMusicUI();
+    startProgressTimer();
+}
+
+function pauseMusic() {
+    audio.pause();
+    updateMusicUI();
+    stopProgressTimer();
+}
+
+function musicNext() {
+    if (musicTracks.length === 0) return;
+    const wasPlaying = !audio.paused;
+    if (wasPlaying) audio.pause();
+    if (musicMode === 'shuffle') {
+        let next;
+        do { next = Math.floor(Math.random() * musicTracks.length); } while (next === currentTrackIndex && musicTracks.length > 1);
+        currentTrackIndex = next;
+    } else {
+        currentTrackIndex = (currentTrackIndex + 1) % musicTracks.length;
+    }
+    audio.src = musicTracks[currentTrackIndex].url;
+    audio.currentTime = 0;
+    updateTrackDisplay();
+    if (wasPlaying) audio.play();
+}
+
+function musicPrev() {
+    if (musicTracks.length === 0) return;
+    const wasPlaying = !audio.paused;
+    if (wasPlaying) audio.pause();
+    currentTrackIndex = (currentTrackIndex - 1 + musicTracks.length) % musicTracks.length;
+    audio.src = musicTracks[currentTrackIndex].url;
+    audio.currentTime = 0;
+    updateTrackDisplay();
+    if (wasPlaying) audio.play();
+}
+
+function toggleMusicMode() {
+    const modes = ['loop', 'single', 'shuffle'];
+    const idx = modes.indexOf(musicMode);
+    musicMode = modes[(idx + 1) % modes.length];
+    document.querySelectorAll('.music-player .mode-loop, .music-player .mode-single, .music-player .mode-shuffle').forEach(el => el.style.display = 'none');
+    document.querySelector(`.music-player .mode-${musicMode}`).style.display = '';
+    const labels = { loop: '列表循环', single: '单曲循环', shuffle: '随机播放' };
+    showToast(labels[musicMode]);
+}
+
+function toggleMusicMute() {
+    isMuted = !isMuted;
+    audio.muted = isMuted;
+    document.querySelector('.music-volume-btn .vol-on').style.display = isMuted ? 'none' : '';
+    document.querySelector('.music-volume-btn .vol-off').style.display = isMuted ? '' : 'none';
+}
+
+function setMusicVolume(val) {
+    musicVolume = val / 100;
+    audio.volume = musicVolume;
+    isMuted = false;
+    audio.muted = false;
+    document.querySelector('.music-volume-btn .vol-on').style.display = '';
+    document.querySelector('.music-volume-btn .vol-off').style.display = 'none';
+}
+
+function updateMusicUI() {
+    const playIcon = document.querySelector('#musicPlayBtn .play-icon');
+    const pauseIcon = document.querySelector('#musicPlayBtn .pause-icon');
+    if (!audio.paused) {
+        playIcon.style.display = 'none';
+        pauseIcon.style.display = '';
+    } else {
+        playIcon.style.display = '';
+        pauseIcon.style.display = 'none';
+    }
+}
+
+function updateTrackDisplay() {
+    if (musicTracks.length === 0) return;
+    const track = musicTracks[currentTrackIndex];
+    document.getElementById('musicTitle').textContent = track.name;
+    document.getElementById('musicArtist').textContent = '图书馆自习';
+    document.getElementById('musicTimeTotal').textContent = '--:--';
+    document.getElementById('musicTimeCurrent').textContent = '0:00';
+    document.getElementById('musicProgressFill').style.width = '0%';
+}
+
+function startProgressTimer() {
+    stopProgressTimer();
+    musicProgressTimer = setInterval(() => {
+        if (audio.paused || !audio.duration) return;
+        const pct = (audio.currentTime / audio.duration) * 100;
+        document.getElementById('musicProgressFill').style.width = pct + '%';
+        document.getElementById('musicTimeCurrent').textContent = formatMusicTime(audio.currentTime);
+    }, 250);
+}
+
+function stopProgressTimer() {
+    if (musicProgressTimer) { clearInterval(musicProgressTimer); musicProgressTimer = null; }
+}
+
+function formatMusicTime(sec) {
+    if (!sec || isNaN(sec)) return '0:00';
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return m + ':' + String(s).padStart(2, '0');
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const bar = document.getElementById('musicProgressBar');
+    if (bar) {
+        bar.addEventListener('click', (e) => {
+            if (!audio.duration) return;
+            const rect = bar.getBoundingClientRect();
+            const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+            audio.currentTime = pct * audio.duration;
+        });
+    }
+    loadMusicTracks();
+});

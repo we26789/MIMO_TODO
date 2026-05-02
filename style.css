@@ -198,6 +198,176 @@ body {
     flex-shrink: 0;
 }
 
+/* ========================================
+   音乐播放器
+   ======================================== */
+.music-player {
+    margin: 0 12px 12px;
+    padding: 14px;
+    background: linear-gradient(145deg, rgba(15, 12, 25, 0.8), rgba(8, 8, 18, 0.7));
+    border: 1px solid rgba(139, 92, 246, 0.1);
+    border-radius: 14px;
+    backdrop-filter: blur(12px);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.music-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.music-cover {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(255, 140, 50, 0.1));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--purple);
+    flex-shrink: 0;
+}
+
+.music-cover svg {
+    width: 18px;
+    height: 18px;
+}
+
+.music-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.music-title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.music-artist {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+}
+
+.music-progress {
+    margin-bottom: 10px;
+}
+
+.music-progress-bar {
+    width: 100%;
+    height: 3px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 2px;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+}
+
+.music-progress-bar:hover {
+    height: 5px;
+}
+
+.music-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--purple), var(--orange));
+    border-radius: 2px;
+    width: 0%;
+    transition: width 0.3s linear;
+}
+
+.music-time {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    margin-top: 4px;
+}
+
+.music-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+}
+
+.music-ctrl-btn {
+    width: 30px;
+    height: 30px;
+    border: none;
+    background: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.music-ctrl-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+.music-ctrl-btn:hover {
+    color: var(--purple);
+    background: rgba(139, 92, 246, 0.08);
+}
+
+.music-play-btn {
+    width: 36px;
+    height: 36px;
+    background: linear-gradient(135deg, var(--purple), var(--orange));
+    color: #fff;
+    border-radius: 50%;
+}
+
+.music-play-btn:hover {
+    box-shadow: 0 0 16px rgba(139, 92, 246, 0.3);
+    color: #fff;
+    transform: scale(1.05);
+}
+
+.music-play-btn svg {
+    width: 16px;
+    height: 16px;
+}
+
+.music-volume-slider {
+    margin-top: 6px;
+    display: none;
+}
+
+.music-player:hover .music-volume-slider {
+    display: block;
+}
+
+.music-volume-slider input[type="range"] {
+    width: 100%;
+    height: 3px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 2px;
+    outline: none;
+}
+
+.music-volume-slider input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--purple);
+    cursor: pointer;
+}
+
 .sidebar-footer {
     padding: 16px 20px;
     border-top: 1px solid var(--border);
@@ -1993,6 +2163,254 @@ body {
     height: 18px;
 }
 
+/* 语音输入按钮 */
+.ai-voice-btn {
+    width: 42px;
+    height: 42px;
+    border-radius: 10px;
+    border: 1px solid rgba(139, 92, 246, 0.2);
+    background: rgba(139, 92, 246, 0.06);
+    color: var(--purple);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s ease;
+    flex-shrink: 0;
+    position: relative;
+}
+
+.ai-voice-btn svg {
+    width: 18px;
+    height: 18px;
+}
+
+.ai-voice-btn:hover {
+    background: rgba(139, 92, 246, 0.12);
+    border-color: rgba(139, 92, 246, 0.35);
+    box-shadow: 0 0 16px var(--purple-glow);
+}
+
+.ai-voice-btn.recording {
+    background: rgba(248, 113, 113, 0.12);
+    border-color: rgba(248, 113, 113, 0.4);
+    color: var(--red);
+    animation: voicePulse 1.5s ease-in-out infinite;
+}
+
+@keyframes voicePulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(248, 113, 113, 0.3); }
+    50% { box-shadow: 0 0 0 8px rgba(248, 113, 113, 0); }
+}
+
+.voice-interim-hint {
+    display: none;
+    font-size: 0.75rem;
+    color: var(--purple);
+    padding: 4px 0 0 0;
+    font-style: italic;
+    animation: fadeIn 0.2s ease;
+}
+
+/* ========================================
+   日程提醒弹窗
+   ======================================== */
+.notification-container {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 3000;
+    display: flex;
+    flex-direction: column-reverse;
+    gap: 12px;
+    pointer-events: none;
+}
+
+.notification-popup {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 16px 18px;
+    background: linear-gradient(145deg, rgba(18, 15, 28, 0.96), rgba(10, 10, 18, 0.96));
+    border: 1px solid rgba(255, 140, 50, 0.15);
+    border-radius: 14px;
+    backdrop-filter: blur(24px);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 0 30px rgba(255, 140, 50, 0.06);
+    min-width: 340px;
+    max-width: 420px;
+    pointer-events: all;
+    transform: translateX(120%);
+    opacity: 0;
+    transition: all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.notification-popup.show {
+    transform: translateX(0);
+    opacity: 1;
+}
+
+.notification-popup.hide {
+    transform: translateX(120%);
+    opacity: 0;
+}
+
+.notification-popup.notif-urgent {
+    border-color: rgba(248, 113, 113, 0.25);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 0 30px rgba(248, 113, 113, 0.08);
+    animation: notifPulse 2s ease-in-out 1;
+}
+
+.notification-popup.notif-upcoming {
+    border-color: rgba(139, 92, 246, 0.2);
+}
+
+@keyframes notifPulse {
+    0%, 100% { box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 0 30px rgba(248, 113, 113, 0.08); }
+    50% { box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 0 50px rgba(248, 113, 113, 0.2); }
+}
+
+.notif-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.notif-icon svg {
+    width: 20px;
+    height: 20px;
+}
+
+.notif-icon-urgent {
+    background: rgba(248, 113, 113, 0.1);
+    color: var(--red);
+    border: 1px solid rgba(248, 113, 113, 0.2);
+}
+
+.notif-icon-upcoming {
+    background: rgba(139, 92, 246, 0.1);
+    color: var(--purple);
+    border: 1px solid rgba(139, 92, 246, 0.2);
+}
+
+.notif-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.notif-title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.notif-message {
+    font-size: 0.85rem;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+    line-height: 1.4;
+}
+
+.notif-time {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+}
+
+.notif-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.notif-btn-primary {
+    padding: 6px 14px;
+    border: none;
+    border-radius: 6px;
+    background: linear-gradient(135deg, var(--orange), var(--purple));
+    color: #fff;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-family: var(--font-sans);
+}
+
+.notif-btn-primary:hover {
+    box-shadow: 0 2px 12px rgba(255, 140, 50, 0.3);
+}
+
+.notif-btn-dismiss {
+    padding: 6px 14px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    background: none;
+    color: var(--text-dim);
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-family: var(--font-sans);
+}
+
+.notif-btn-dismiss:hover {
+    border-color: var(--text-secondary);
+    color: var(--text-secondary);
+}
+
+/* 通知权限提示条 */
+.notif-permission-bar {
+    position: fixed;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 5000;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 20px;
+    background: linear-gradient(135deg, rgba(248, 113, 113, 0.9), rgba(200, 60, 60, 0.9));
+    color: #fff;
+    font-size: 0.85rem;
+    border-radius: 0 0 12px 12px;
+    box-shadow: 0 4px 20px rgba(248, 113, 113, 0.3);
+    animation: slideDown 0.3s ease;
+    max-width: 90vw;
+}
+
+.notif-permission-bar button {
+    padding: 4px 14px;
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.15);
+    color: #fff;
+    font-size: 0.8rem;
+    cursor: pointer;
+    white-space: nowrap;
+    font-family: var(--font-sans);
+}
+
+.notif-permission-bar button:hover {
+    background: rgba(255, 255, 255, 0.25);
+}
+
+.notif-bar-close {
+    background: none !important;
+    border: none !important;
+    font-size: 1.2rem !important;
+    padding: 0 4px !important;
+    opacity: 0.7;
+}
+
+@keyframes slideDown {
+    from { transform: translateX(-50%) translateY(-100%); }
+    to { transform: translateX(-50%) translateY(0); }
+}
+
 /* ========================================
    移动端菜单按钮 & 遮罩
    ======================================== */
@@ -2291,6 +2709,21 @@ body {
     .ai-example-btn {
         font-size: 0.75rem;
         padding: 6px 10px;
+    }
+    .ai-voice-btn {
+        width: 38px;
+        height: 38px;
+    }
+
+    .notification-container {
+        bottom: 12px;
+        right: 12px;
+        left: 12px;
+    }
+    .notification-popup {
+        min-width: 0;
+        max-width: 100%;
+        width: 100%;
     }
     .modal-header {
         padding: 16px;

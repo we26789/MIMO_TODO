@@ -50,8 +50,25 @@ const pool = mysql.createPool({
 // ========================================
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
-app.use(express.static(__dirname));
+app.use(express.static(__dirname, { index: 'index.html' }));
 app.use('/uploads', express.static(uploadsDir));
+
+// 音乐文件夹
+const musicDir = path.join(__dirname, 'music');
+if (!fs.existsSync(musicDir)) fs.mkdirSync(musicDir, { recursive: true });
+app.use('/music', express.static(musicDir));
+
+// 请求日志
+app.use((req, res, next) => {
+    const start = Date.now();
+    res.on('finish', () => {
+        const ms = Date.now() - start;
+        if (ms > 1000 || res.statusCode >= 400) {
+            console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${req.url} → ${res.statusCode} (${ms}ms)`);
+        }
+    });
+    next();
+});
 
 // ========================================
 // API 路由
@@ -322,6 +339,25 @@ app.post('/api/schedules/sync', async (req, res) => {
 });
 
 // ========================================
+// 音乐列表 API
+// ========================================
+app.get('/api/music', (req, res) => {
+    try {
+        if (!fs.existsSync(musicDir)) return res.json([]);
+        const files = fs.readdirSync(musicDir).filter(f => /\.(mp3|ogg)$/i.test(f));
+        const tracks = files.map((f, i) => ({
+            id: i,
+            filename: f,
+            name: decodeURIComponent(f.replace(/\.mp3$/i, '').replace(/_/g, ' ')),
+            url: `/music/${encodeURIComponent(f)}`,
+        }));
+        res.json(tracks);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ========================================
 // AI 智能日程创建
 // ========================================
 
@@ -518,7 +554,16 @@ app.get('*', (req, res) => {
 // ========================================
 // 启动服务器
 // ========================================
-app.listen(PORT, '0.0.0.0', () => {
+// 全局错误处理
+app.use((err, req, res, next) => {
+    console.error('[ERROR]', err.message);
+    if (!res.headersSent) {
+        res.status(500).json({ error: '服务器内部错误' });
+    }
+});
+
+// 记录连接日志
+const server = app.listen(PORT, '0.0.0.0', () => {
     console.log('');
     console.log('  ╔══════════════════════════════════════════╗');
     console.log('  ║     MIMO TODO 智能日程管理系统          ║');
@@ -527,4 +572,9 @@ app.listen(PORT, '0.0.0.0', () => {
     console.log(`  ║  局域网:   http://172.22.164.119:${PORT}   ║`);
     console.log('  ╚══════════════════════════════════════════╝');
     console.log('');
+});
+
+server.on('clientError', (err, socket) => {
+    console.error('[CLIENT ERROR]', err.message);
+    socket.destroy();
 });
