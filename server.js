@@ -148,11 +148,11 @@ app.get('/api/schedules/search', async (req, res) => {
 // 新建日程
 app.post('/api/schedules', async (req, res) => {
     try {
-        const { id, title, description, start, end, priority, urgency, completed } = req.body;
+        const { id, title, description, start, end, priority, urgency, category, energy_level, context_type, completed } = req.body;
         await pool.query(
-            `INSERT INTO schedules (id, title, description, start_time, end_time, priority, urgency, completed)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [id, title, description || '', start, end, priority || 'low', urgency || 'normal', completed ? 1 : 0]
+            `INSERT INTO schedules (id, title, description, start_time, end_time, priority, urgency, category, energy_level, context_type, completed)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [id, title, description || '', start, end, priority || 'low', urgency || 'normal', category || 'work', energy_level || 'medium', context_type || 'anywhere', completed ? 1 : 0]
         );
         res.json({ success: true, id });
     } catch (err) {
@@ -164,11 +164,11 @@ app.post('/api/schedules', async (req, res) => {
 app.put('/api/schedules/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        const { title, description, start, end, priority, urgency, completed } = req.body;
+        const { title, description, start, end, priority, urgency, category, energy_level, context_type, completed } = req.body;
         await pool.query(
-            `UPDATE schedules SET title=?, description=?, start_time=?, end_time=?, priority=?, urgency=?, completed=?
+            `UPDATE schedules SET title=?, description=?, start_time=?, end_time=?, priority=?, urgency=?, category=?, energy_level=?, context_type=?, completed=?
              WHERE id=?`,
-            [title, description || '', start, end, priority, urgency, completed ? 1 : 0, id]
+            [title, description || '', start, end, priority, urgency, category || 'work', energy_level || 'medium', context_type || 'anywhere', completed ? 1 : 0, id]
         );
         res.json({ success: true });
     } catch (err) {
@@ -321,15 +321,17 @@ app.post('/api/schedules/sync', async (req, res) => {
         if (!Array.isArray(schedules)) return res.status(400).json({ error: '参数错误' });
         for (const s of schedules) {
             await pool.query(
-                `INSERT INTO schedules (id, title, description, start_time, end_time, priority, urgency, completed, created_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `INSERT INTO schedules (id, title, description, start_time, end_time, priority, urgency, category, energy_level, context_type, completed, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                  ON DUPLICATE KEY UPDATE
                     title=VALUES(title), description=VALUES(description),
                     start_time=VALUES(start_time), end_time=VALUES(end_time),
                     priority=VALUES(priority), urgency=VALUES(urgency),
-                    completed=VALUES(completed)`,
+                    category=VALUES(category), energy_level=VALUES(energy_level),
+                    context_type=VALUES(context_type), completed=VALUES(completed)`,
                 [s.id, s.title, s.description || '', s.start, s.end,
-                 s.priority || 'low', s.urgency || 'normal', s.completed ? 1 : 0, s.createdAt || new Date()]
+                 s.priority || 'low', s.urgency || 'normal', s.category || 'work', s.energy_level || 'medium', s.context_type || 'anywhere',
+                 s.completed ? 1 : 0, s.createdAt || new Date()]
             );
         }
         res.json({ success: true, synced: schedules.length });
@@ -352,6 +354,68 @@ app.get('/api/music', (req, res) => {
             url: `/music/${encodeURIComponent(f)}`,
         }));
         res.json(tracks);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ========================================
+// 统计数据 API（视角视图用）
+// ========================================
+app.get('/api/schedules/stats', async (req, res) => {
+    try {
+        const [byCategory] = await pool.query(
+            `SELECT category, COUNT(*) as count,
+             SUM(TIMESTAMPDIFF(MINUTE, start_time, end_time)) as totalMinutes
+             FROM schedules GROUP BY category`
+        );
+        const [byEnergy] = await pool.query(
+            `SELECT energy_level, COUNT(*) as count FROM schedules GROUP BY energy_level`
+        );
+        const [byContext] = await pool.query(
+            `SELECT context_type, COUNT(*) as count FROM schedules GROUP BY context_type`
+        );
+        res.json({ byCategory, byEnergy, byContext });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ========================================
+// 天气 API 代理
+// ========================================
+app.get('/api/weather', async (req, res) => {
+    try {
+        const city = req.query.city || 'Beijing';
+        const weatherRes = await fetch(`https://wttr.in/${encodeURIComponent(city)}?format=j1`);
+        if (!weatherRes.ok) return res.status(502).json({ error: '天气服务不可用' });
+        const data = await weatherRes.json();
+        const current = data.current_condition?.[0];
+        if (!current) return res.status(502).json({ error: '无法获取天气数据' });
+
+        const temp = parseInt(current.temp_C);
+        const desc = current.weatherDesc?.[0]?.value || '未知';
+        const code = parseInt(current.weatherCode);
+
+        // 判断是否为恶劣天气
+        const isBadWeather = code >= 296 && code <= 399 // 雨
+            || code >= 179 && code <= 199 // 雪
+            || code >= 200 && code <= 299 // 雷暴
+            || temp >= 35 || temp <= -10; // 极端温度
+
+        // 天气图标映射
+        let icon = '☀️';
+        if (code >= 179 && code <= 199) icon = '🌨️';
+        else if (code >= 200 && code <= 299) icon = '⛈️';
+        else if (code >= 296 && code <= 399) icon = '🌧️';
+        else if (code >= 113 && code <= 113) icon = '☀️';
+        else if (code >= 116 && code <= 116) icon = '⛅';
+        else if (code >= 119 && code <= 119) icon = '☁️';
+        else if (code >= 122 && code <= 122) icon = '☁️';
+        else if (code >= 143 && code <= 143) icon = '🌫️';
+        else if (code >= 248 && code <= 260) icon = '🌫️';
+
+        res.json({ temp, condition: desc, icon, isBadWeather, city });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -387,7 +451,10 @@ const SYSTEM_PROMPT = `你是一个智能日程助手。用户会用自然语言
   "start": "2026-05-03T14:00",
   "end": "2026-05-03T16:00",
   "priority": "low|medium|high",
-  "urgency": "normal|urgent|critical"
+  "urgency": "normal|urgent|critical",
+  "category": "work|personal|family|health",
+  "energy_level": "high|medium|low",
+  "context_type": "computer|phone|outdoor|meeting|anywhere"
 }]
 \`\`\`
 
@@ -409,6 +476,27 @@ const SYSTEM_PROMPT = `你是一个智能日程助手。用户会用自然语言
 - 非常紧急(critical): 马上要发生的、逾期的
 - 紧急(urgent): 今天或明天内需要完成的
 - 一般(normal): 未来几天的安排
+
+## 类别推断 (category)
+
+- 工作(work): 工作任务、会议、项目、汇报、办公相关
+- 个人成长(personal): 学习、阅读、培训、技能提升、兴趣爱好
+- 家庭(family): 家庭聚会、陪伴家人、家务、家庭事务
+- 健康(health): 运动、健身、体检、看病、养生
+
+## 能量等级推断 (energy_level)
+
+- 高能量(high): 深度工作、重要决策、创造性任务、考试、面试
+- 中能量(medium): 普通会议、邮件处理、文档撰写
+- 低能量(low): 整理文件、回复消息、简单杂务、休闲娱乐
+
+## 情境类型推断 (context_type)
+
+- 电脑前(computer): 编程、写文档、设计、在线学习
+- 打电话(phone): 通话、视频会议、语音沟通
+- 外出(outdoor): 出门办事、运动、聚会、旅行
+- 会议(meeting): 面对面会议、团队讨论、商务会谈
+- 无特定(anywhere): 阅读、思考、规划等不限地点的任务
 
 ## 其他规则
 
@@ -531,10 +619,10 @@ app.post('/api/ai/confirm', async (req, res) => {
             const start = s.start ? s.start.replace(' ', 'T') : new Date().toISOString().slice(0, 16);
             const end = s.end ? s.end.replace(' ', 'T') : new Date(Date.now() + 7200000).toISOString().slice(0, 16);
             await pool.query(
-                `INSERT INTO schedules (id, title, description, start_time, end_time, priority, urgency, completed)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
+                `INSERT INTO schedules (id, title, description, start_time, end_time, priority, urgency, category, energy_level, context_type, completed)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
                 [id, s.title || '未命名日程', s.description || '', start, end,
-                 s.priority || 'low', s.urgency || 'normal']
+                 s.priority || 'low', s.urgency || 'normal', s.category || 'work', s.energy_level || 'medium', s.context_type || 'anywhere']
             );
             created.push({ id, title: s.title });
         }

@@ -79,6 +79,34 @@
                     </svg>
                     <span>查看日程</span>
                 </a>
+                <div class="nav-divider"></div>
+                <a class="nav-item" data-page="intent" onclick="switchPage('intent')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <circle cx="12" cy="12" r="10"/>
+                        <circle cx="12" cy="12" r="6"/>
+                        <circle cx="12" cy="12" r="2"/>
+                    </svg>
+                    <span>意图视图</span>
+                </a>
+                <a class="nav-item" data-page="energy" onclick="switchPage('energy')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <polygon points="13,2 3,14 12,14 11,22 21,10 12,10"/>
+                    </svg>
+                    <span>能量视图</span>
+                </a>
+                <a class="nav-item" data-page="context" onclick="switchPage('context')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+                        <circle cx="12" cy="10" r="3"/>
+                    </svg>
+                    <span>情境视图</span>
+                </a>
+                <a class="nav-item" data-page="weather" onclick="switchPage('weather')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M17 7A5 5 0 0 0 7.5 8.5 3.5 3.5 0 0 0 5 15h12a4 4 0 0 0 0-8z"/>
+                    </svg>
+                    <span>天气视图</span>
+                </a>
             </nav>
 
             <!-- 音乐播放器 -->
@@ -337,11 +365,11 @@
                                     <div class="form-row">
                                         <div class="form-group">
                                             <label class="form-label">开始时间</label>
-                                            <input type="datetime-local" class="form-input" id="scheduleStart" required>
+                                            <input type="text" class="form-input dt-picker-input" id="scheduleStart" readonly required>
                                         </div>
                                         <div class="form-group">
                                             <label class="form-label">结束时间</label>
-                                            <input type="datetime-local" class="form-input" id="scheduleEnd" required>
+                                            <input type="text" class="form-input dt-picker-input" id="scheduleEnd" readonly required>
                                         </div>
                                     </div>
                                     <div class="form-group">
@@ -380,6 +408,54 @@
                                                 <label class="priority-option">
                                                     <input type="radio" name="urgency" value="critical">
                                                     <span class="urgency-badge critical">非常紧急</span>
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="form-row">
+                                        <div class="form-group">
+                                            <label class="form-label">类别</label>
+                                            <div class="priority-selector">
+                                                <label class="priority-option">
+                                                    <input type="radio" name="category" value="work" checked>
+                                                    <span class="category-badge work">工作</span>
+                                                </label>
+                                                <label class="priority-option">
+                                                    <input type="radio" name="category" value="personal">
+                                                    <span class="category-badge personal">个人成长</span>
+                                                </label>
+                                                <label class="priority-option">
+                                                    <input type="radio" name="category" value="family">
+                                                    <span class="category-badge family">家庭</span>
+                                                </label>
+                                                <label class="priority-option">
+                                                    <input type="radio" name="category" value="health">
+                                                    <span class="category-badge health">健康</span>
+                                                </label>
+                                            </div>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">情境</label>
+                                            <div class="priority-selector">
+                                                <label class="priority-option">
+                                                    <input type="radio" name="context_type" value="computer" checked>
+                                                    <span class="context-badge computer">电脑前</span>
+                                                </label>
+                                                <label class="priority-option">
+                                                    <input type="radio" name="context_type" value="phone">
+                                                    <span class="context-badge phone">打电话</span>
+                                                </label>
+                                                <label class="priority-option">
+                                                    <input type="radio" name="context_type" value="outdoor">
+                                                    <span class="context-badge outdoor">外出</span>
+                                                </label>
+                                                <label class="priority-option">
+                                                    <input type="radio" name="context_type" value="meeting">
+                                                    <span class="context-badge meeting">会议</span>
+                                                </label>
+                                                <label class="priority-option">
+                                                    <input type="radio" name="context_type" value="anywhere">
+                                                    <span class="context-badge anywhere">无特定</span>
                                                 </label>
                                             </div>
                                         </div>
@@ -481,6 +557,88 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- 意图视图 -->
+                <div class="page" id="page-intent">
+                    <div class="card">
+                        <div class="card-header"><h3>时间分配概览</h3></div>
+                        <div class="card-body">
+                            <div class="intent-bar" id="intentBar"></div>
+                            <div class="intent-legend" id="intentLegend"></div>
+                        </div>
+                    </div>
+                    <div class="intent-categories" id="intentCategories"></div>
+                </div>
+
+                <!-- 能量视图 -->
+                <div class="page" id="page-energy">
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>精力波段设置</h3>
+                        </div>
+                        <div class="card-body">
+                            <div class="chronotype-setting">
+                                <span class="form-label">我的类型：</span>
+                                <div class="chronotype-toggle">
+                                    <button class="chronotype-btn active" data-type="morning" onclick="setChronotype('morning')">🌅 晨型人</button>
+                                    <button class="chronotype-btn" data-type="night" onclick="setChronotype('night')">🌙 夜猫子</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header"><h3>24小时能量曲线</h3></div>
+                        <div class="card-body">
+                            <div class="energy-timeline" id="energyTimeline"></div>
+                        </div>
+                    </div>
+                    <div class="energy-schedules" id="energySchedules"></div>
+                </div>
+
+                <!-- 情境视图 -->
+                <div class="page" id="page-context">
+                    <div class="filter-bar" id="contextFilterBar">
+                        <button class="filter-btn active" onclick="filterByContext('all', this)">全部</button>
+                        <button class="filter-btn" onclick="filterByContext('computer', this)">💻 电脑前</button>
+                        <button class="filter-btn" onclick="filterByContext('phone', this)">📞 打电话</button>
+                        <button class="filter-btn" onclick="filterByContext('outdoor', this)">🚶 外出</button>
+                        <button class="filter-btn" onclick="filterByContext('meeting', this)">👥 会议</button>
+                        <button class="filter-btn" onclick="filterByContext('anywhere', this)">🌍 无特定</button>
+                    </div>
+                    <div class="context-content" id="contextContent"></div>
+                </div>
+
+                <!-- 天气视图 -->
+                <div class="page" id="page-weather">
+                    <div class="weather-top">
+                        <div class="card weather-card" id="weatherCard">
+                            <div class="card-body">
+                                <div class="weather-loading">加载天气中...</div>
+                            </div>
+                        </div>
+                        <div class="card weather-city-card">
+                            <div class="card-body">
+                                <div class="form-group" style="margin:0">
+                                    <label class="form-label">城市</label>
+                                    <div style="display:flex;gap:8px">
+                                        <input type="text" class="form-input" id="weatherCityInput" placeholder="输入城市名" style="flex:1">
+                                        <button class="btn btn-primary btn-sm" onclick="changeWeatherCity()">查询</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="weather-sections">
+                        <div class="card">
+                            <div class="card-header"><h3>⚠️ 受天气影响的户外任务</h3></div>
+                            <div class="card-body" id="weatherOutdoorTasks"></div>
+                        </div>
+                        <div class="card">
+                            <div class="card-header"><h3>💡 建议的室内替代</h3></div>
+                            <div class="card-body" id="weatherIndoorTasks"></div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </main>
     </div>
@@ -502,11 +660,11 @@
                     <div class="form-row">
                         <div class="form-group">
                             <label class="form-label">开始时间</label>
-                            <input type="datetime-local" class="form-input" id="editStart" required>
+                            <input type="text" class="form-input dt-picker-input" id="editStart" readonly required>
                         </div>
                         <div class="form-group">
                             <label class="form-label">结束时间</label>
-                            <input type="datetime-local" class="form-input" id="editEnd" required>
+                            <input type="text" class="form-input dt-picker-input" id="editEnd" readonly required>
                         </div>
                     </div>
                     <div class="form-group">
@@ -545,6 +703,54 @@
                                 <input type="radio" name="editUrgency" value="critical">
                                 <span class="urgency-badge critical">非常紧急</span>
                             </label>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">类别</label>
+                            <div class="priority-selector">
+                                <label class="priority-option">
+                                    <input type="radio" name="editCategory" value="work">
+                                    <span class="category-badge work">工作</span>
+                                </label>
+                                <label class="priority-option">
+                                    <input type="radio" name="editCategory" value="personal">
+                                    <span class="category-badge personal">个人成长</span>
+                                </label>
+                                <label class="priority-option">
+                                    <input type="radio" name="editCategory" value="family">
+                                    <span class="category-badge family">家庭</span>
+                                </label>
+                                <label class="priority-option">
+                                    <input type="radio" name="editCategory" value="health">
+                                    <span class="category-badge health">健康</span>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">情境</label>
+                            <div class="priority-selector">
+                                <label class="priority-option">
+                                    <input type="radio" name="editContext" value="computer">
+                                    <span class="context-badge computer">电脑前</span>
+                                </label>
+                                <label class="priority-option">
+                                    <input type="radio" name="editContext" value="phone">
+                                    <span class="context-badge phone">打电话</span>
+                                </label>
+                                <label class="priority-option">
+                                    <input type="radio" name="editContext" value="outdoor">
+                                    <span class="context-badge outdoor">外出</span>
+                                </label>
+                                <label class="priority-option">
+                                    <input type="radio" name="editContext" value="meeting">
+                                    <span class="context-badge meeting">会议</span>
+                                </label>
+                                <label class="priority-option">
+                                    <input type="radio" name="editContext" value="anywhere">
+                                    <span class="context-badge anywhere">无特定</span>
+                                </label>
+                            </div>
                         </div>
                     </div>
                 </form>
@@ -615,6 +821,44 @@
             <div class="modal-footer">
                 <button class="btn btn-ghost" onclick="closeDetailModal()">关闭</button>
                 <button class="btn btn-primary" id="detailEditBtn" onclick="editFromDetail()">编辑</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 日期时间选择器 -->
+    <div class="dt-picker-popup" id="dtPickerPopup">
+        <div class="dt-picker-overlay" onclick="closeDateTimePicker(false)"></div>
+        <div class="dt-picker-container">
+            <div class="dt-picker-header">
+                <span class="dt-picker-title" id="dtPickerTitle">选择日期和时间</span>
+                <button class="dt-picker-close" onclick="closeDateTimePicker(false)">×</button>
+            </div>
+            <div class="dt-picker-body">
+                <div class="dt-picker-calendar">
+                    <div class="dt-cal-nav">
+                        <button class="dt-cal-nav-btn" onclick="dtPickerNavMonth(-1)">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15,18 9,12 15,6"/></svg>
+                        </button>
+                        <span class="dt-cal-month-label" id="dtCalMonthLabel"></span>
+                        <button class="dt-cal-nav-btn" onclick="dtPickerNavMonth(1)">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9,18 15,12 9,6"/></svg>
+                        </button>
+                    </div>
+                    <div class="dt-cal-weekdays">
+                        <span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span>
+                    </div>
+                    <div class="dt-cal-days" id="dtCalDays"></div>
+                </div>
+                <div class="dt-picker-time">
+                    <div class="dt-time-label">小时</div>
+                    <div class="dt-time-wheel" id="dtHourWheel"></div>
+                    <div class="dt-time-label">分钟</div>
+                    <div class="dt-time-wheel" id="dtMinuteWheel"></div>
+                </div>
+            </div>
+            <div class="dt-picker-footer">
+                <button class="btn btn-ghost btn-sm" onclick="closeDateTimePicker(false)">取消</button>
+                <button class="btn btn-primary btn-sm" onclick="closeDateTimePicker(true)">确定</button>
             </div>
         </div>
     </div>

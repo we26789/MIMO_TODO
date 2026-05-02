@@ -2780,3 +2780,564 @@ body {
         display: none;
     }
 }
+
+/* ========================================
+   导航分隔线
+   ======================================== */
+.nav-divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,140,50,0.3), transparent);
+    margin: 12px 16px;
+}
+
+/* ========================================
+   类别徽章
+   ======================================== */
+.category-badge {
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s;
+    border: 1px solid transparent;
+}
+.category-badge.work { background: rgba(255,140,50,0.15); color: var(--orange); border-color: rgba(255,140,50,0.3); }
+.category-badge.personal { background: rgba(139,92,246,0.15); color: var(--purple); border-color: rgba(139,92,246,0.3); }
+.category-badge.family { background: rgba(52,211,153,0.15); color: var(--green); border-color: rgba(52,211,153,0.3); }
+.category-badge.health { background: rgba(59,130,246,0.15); color: var(--blue); border-color: rgba(59,130,246,0.3); }
+.priority-option input:checked + .category-badge.work { background: var(--orange); color: #000; }
+.priority-option input:checked + .category-badge.personal { background: var(--purple); color: #fff; }
+.priority-option input:checked + .category-badge.family { background: var(--green); color: #000; }
+.priority-option input:checked + .category-badge.health { background: var(--blue); color: #fff; }
+
+/* ========================================
+   情境徽章
+   ======================================== */
+.context-badge {
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s;
+    border: 1px solid transparent;
+}
+.context-badge.computer { background: rgba(59,130,246,0.15); color: var(--blue); border-color: rgba(59,130,246,0.3); }
+.context-badge.phone { background: rgba(52,211,153,0.15); color: var(--green); border-color: rgba(52,211,153,0.3); }
+.context-badge.outdoor { background: rgba(255,170,85,0.15); color: var(--orange-bright); border-color: rgba(255,170,85,0.3); }
+.context-badge.meeting { background: rgba(139,92,246,0.15); color: var(--purple); border-color: rgba(139,92,246,0.3); }
+.context-badge.anywhere { background: rgba(255,255,255,0.08); color: var(--text-secondary); border-color: rgba(255,255,255,0.15); }
+.priority-option input:checked + .context-badge.computer { background: var(--blue); color: #fff; }
+.priority-option input:checked + .context-badge.phone { background: var(--green); color: #000; }
+.priority-option input:checked + .context-badge.outdoor { background: var(--orange-bright); color: #000; }
+.priority-option input:checked + .context-badge.meeting { background: var(--purple); color: #fff; }
+.priority-option input:checked + .context-badge.anywhere { background: rgba(255,255,255,0.2); color: #fff; }
+
+/* ========================================
+   意图视图
+   ======================================== */
+.intent-bar {
+    display: flex;
+    height: 32px;
+    border-radius: 16px;
+    overflow: hidden;
+    background: rgba(255,255,255,0.05);
+    margin-bottom: 16px;
+}
+.intent-bar-segment {
+    transition: width 0.5s ease;
+    min-width: 4px;
+}
+.intent-bar-segment.work { background: var(--orange); }
+.intent-bar-segment.personal { background: var(--purple); }
+.intent-bar-segment.family { background: var(--green); }
+.intent-bar-segment.health { background: var(--blue); }
+.intent-bar-segment:hover { filter: brightness(1.2); }
+.intent-bar-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    color: var(--text-dim);
+    font-size: 13px;
+}
+.intent-legend {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+.intent-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+.intent-legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+}
+.intent-categories {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+    margin-top: 16px;
+}
+.intent-category-card .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.intent-cat-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 8px;
+}
+.intent-cat-time {
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+.intent-more {
+    text-align: center;
+    padding: 8px;
+    color: var(--text-dim);
+    font-size: 12px;
+}
+.empty-hint {
+    text-align: center;
+    padding: 24px;
+    color: var(--text-dim);
+    font-size: 13px;
+}
+
+/* ========================================
+   能量视图
+   ======================================== */
+.chronotype-setting {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.chronotype-toggle {
+    display: flex;
+    gap: 8px;
+}
+.chronotype-btn {
+    padding: 8px 16px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.3s;
+    font-size: 13px;
+}
+.chronotype-btn:hover { border-color: var(--border-hover); }
+.chronotype-btn.active {
+    background: rgba(255,140,50,0.15);
+    border-color: var(--orange);
+    color: var(--orange);
+}
+.energy-timeline {
+    display: grid;
+    grid-template-columns: repeat(24, 1fr);
+    gap: 2px;
+    margin-bottom: 8px;
+}
+.energy-cell {
+    aspect-ratio: 1;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    color: var(--text-dim);
+    transition: all 0.3s;
+    position: relative;
+}
+.energy-cell.high { background: rgba(255,140,50,0.3); color: var(--orange); }
+.energy-cell.medium { background: rgba(255,211,153,0.15); color: var(--text-secondary); }
+.energy-cell.low { background: rgba(255,255,255,0.03); }
+.energy-cell.current { outline: 2px solid var(--orange); outline-offset: -1px; }
+.energy-cell-hour { font-size: 9px; }
+.energy-group-card .card-header h3 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.energy-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+.energy-dot.high { background: var(--red); }
+.energy-dot.medium { background: var(--orange); }
+.energy-dot.low { background: var(--blue); }
+.energy-mismatch { border-left: 3px solid var(--red) !important; }
+.energy-warning {
+    font-size: 16px;
+    flex-shrink: 0;
+}
+
+/* ========================================
+   情境视图
+   ======================================== */
+.context-icon-small {
+    font-size: 18px;
+    flex-shrink: 0;
+}
+.route-card .card-header h3 {
+    margin: 0;
+}
+.route-list {
+    position: relative;
+    padding-left: 24px;
+}
+.route-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    position: relative;
+    padding-bottom: 16px;
+}
+.route-item:last-child { padding-bottom: 0; }
+.route-num {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--orange);
+    color: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 600;
+    flex-shrink: 0;
+    z-index: 1;
+}
+.route-connector {
+    position: absolute;
+    left: 11px;
+    top: 24px;
+    bottom: 0;
+    width: 2px;
+    background: rgba(255,140,50,0.3);
+}
+.route-item:last-child .route-connector { display: none; }
+.route-info { flex: 1; }
+.route-title { font-size: 14px; color: var(--text-primary); }
+.route-time { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+
+/* ========================================
+   天气视图
+   ======================================== */
+.weather-top {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+.weather-top .weather-card { flex: 2; }
+.weather-top .weather-city-card { flex: 1; }
+.weather-main {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 8px 0;
+}
+.weather-main.bad { border-left: 3px solid var(--red); padding-left: 16px; }
+.weather-main.good { border-left: 3px solid var(--green); padding-left: 16px; }
+.weather-icon-large { font-size: 48px; }
+.weather-temp { font-size: 32px; font-weight: 700; color: var(--orange); }
+.weather-desc { font-size: 14px; color: var(--text-secondary); margin-top: 4px; }
+.weather-city-name { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+.weather-badge-bad {
+    padding: 6px 12px;
+    border-radius: 20px;
+    background: rgba(248,113,113,0.15);
+    color: var(--red);
+    font-size: 12px;
+    font-weight: 500;
+    margin-left: auto;
+}
+.weather-badge-good {
+    padding: 6px 12px;
+    border-radius: 20px;
+    background: rgba(52,211,153,0.15);
+    color: var(--green);
+    font-size: 12px;
+    font-weight: 500;
+    margin-left: auto;
+}
+.weather-loading, .weather-error {
+    text-align: center;
+    padding: 24px;
+    color: var(--text-dim);
+}
+.weather-sections {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+}
+.weather-warning-item { border-left: 3px solid var(--red) !important; }
+
+/* ========================================
+   响应式 - 新视图适配
+   ======================================== */
+@media (max-width: 1024px) {
+    .intent-categories { grid-template-columns: 1fr; }
+    .weather-sections { grid-template-columns: 1fr; }
+    .weather-top { flex-direction: column; }
+}
+@media (max-width: 768px) {
+    .energy-timeline { grid-template-columns: repeat(12, 1fr); }
+    .chronotype-setting { flex-direction: column; align-items: flex-start; }
+    .weather-main { flex-wrap: wrap; }
+}
+@media (max-width: 380px) {
+    .energy-timeline { grid-template-columns: repeat(8, 1fr); }
+    .intent-bar { height: 24px; }
+}
+
+/* ========================================
+   日期时间选择器
+   ======================================== */
+.dt-picker-popup {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 5000;
+    align-items: center;
+    justify-content: center;
+}
+.dt-picker-popup.active { display: flex; }
+
+.dt-picker-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    backdrop-filter: blur(4px);
+}
+
+.dt-picker-container {
+    position: relative;
+    width: 420px;
+    max-width: 95vw;
+    background: linear-gradient(145deg, rgba(18,15,28,0.97), rgba(10,10,18,0.97));
+    border: 1px solid rgba(255,140,50,0.12);
+    border-radius: 18px;
+    box-shadow: 0 24px 80px rgba(0,0,0,0.6), 0 0 40px rgba(255,140,50,0.05);
+    backdrop-filter: blur(20px);
+    animation: fadeIn 0.2s ease;
+}
+
+.dt-picker-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid rgba(255,140,50,0.06);
+}
+
+.dt-picker-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.dt-picker-close {
+    width: 28px;
+    height: 28px;
+    border: none;
+    background: none;
+    color: var(--text-secondary);
+    font-size: 1.3rem;
+    cursor: pointer;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+.dt-picker-close:hover {
+    background: rgba(248,113,113,0.1);
+    color: var(--red);
+}
+
+.dt-picker-body {
+    display: flex;
+    gap: 16px;
+    padding: 16px 20px;
+}
+
+/* 日历部分 */
+.dt-picker-calendar {
+    flex: 1;
+}
+
+.dt-cal-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+.dt-cal-nav-btn {
+    width: 30px;
+    height: 30px;
+    border: 1px solid rgba(255,140,50,0.1);
+    background: rgba(255,140,50,0.04);
+    border-radius: 8px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+.dt-cal-nav-btn:hover {
+    border-color: var(--orange);
+    color: var(--orange);
+}
+.dt-cal-nav-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+.dt-cal-month-label {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.dt-cal-weekdays {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    text-align: center;
+    margin-bottom: 4px;
+}
+.dt-cal-weekdays span {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    padding: 4px 0;
+}
+
+.dt-cal-days {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 2px;
+}
+
+.dt-cal-day {
+    width: 100%;
+    aspect-ratio: 1;
+    border: none;
+    background: none;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    cursor: pointer;
+    border-radius: 8px;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-sans);
+}
+.dt-cal-day:hover {
+    background: rgba(255,140,50,0.1);
+    color: var(--text-primary);
+}
+.dt-cal-day.today {
+    border: 1px solid rgba(255,140,50,0.3);
+    color: var(--orange);
+}
+.dt-cal-day.selected {
+    background: linear-gradient(135deg, var(--orange), var(--purple));
+    color: #fff;
+    font-weight: 600;
+    box-shadow: 0 2px 10px rgba(255,140,50,0.3);
+}
+.dt-cal-day.other-month {
+    color: var(--text-dim);
+    opacity: 0.4;
+}
+
+/* 时间滚轮部分 */
+.dt-picker-time {
+    width: 110px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+}
+
+.dt-time-label {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    font-weight: 500;
+}
+
+.dt-time-wheel {
+    width: 100%;
+    height: 140px;
+    overflow-y: auto;
+    border: 1px solid rgba(255,140,50,0.08);
+    border-radius: 10px;
+    background: rgba(255,255,255,0.02);
+    scroll-behavior: smooth;
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+.dt-time-wheel::-webkit-scrollbar { display: none; }
+
+.dt-time-option {
+    width: 100%;
+    padding: 8px 0;
+    border: none;
+    background: none;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    font-family: var(--font-mono);
+    cursor: pointer;
+    transition: all 0.2s;
+    text-align: center;
+}
+.dt-time-option:hover {
+    background: rgba(255,140,50,0.08);
+    color: var(--text-primary);
+}
+.dt-time-option.selected {
+    background: rgba(255,140,50,0.15);
+    color: var(--orange);
+    font-weight: 600;
+}
+
+/* 底部按钮 */
+.dt-picker-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 20px;
+    border-top: 1px solid rgba(255,140,50,0.06);
+}
+
+/* 日期时间输入框样式 */
+.dt-picker-input {
+    cursor: pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23777' stroke-width='1.5'%3E%3Crect x='3' y='4' width='18' height='16' rx='2'/%3E%3Cline x1='3' y1='10' x2='21' y2='10'/%3E%3Cline x1='8' y1='2' x2='8' y2='6'/%3E%3Cline x1='16' y1='2' x2='16' y2='6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 36px;
+}
+
+/* 响应式 */
+@media (max-width: 480px) {
+    .dt-picker-container { width: 95vw; }
+    .dt-picker-body { flex-direction: column; gap: 12px; padding: 12px 16px; }
+    .dt-picker-time { width: 100%; flex-direction: row; gap: 12px; }
+    .dt-time-wheel { flex: 1; height: 120px; }
+    .dt-time-label { writing-mode: horizontal-tb; }
+}

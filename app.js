@@ -179,12 +179,16 @@ function switchPage(page) {
     document.getElementById(`page-${page}`).classList.add('active');
     document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
     document.querySelector(`[data-page="${page}"]`).classList.add('active');
-    const titles = { dashboard: '仪表盘', create: '新建日程', schedules: '查看日程' };
-    const breadcrumbs = { dashboard: '首页 / 仪表盘', create: '首页 / 新建日程', schedules: '首页 / 查看日程' };
+    const titles = { dashboard: '仪表盘', create: '新建日程', schedules: '查看日程', intent: '意图视图', energy: '能量视图', context: '情境视图', weather: '天气视图' };
+    const breadcrumbs = { dashboard: '首页 / 仪表盘', create: '首页 / 新建日程', schedules: '首页 / 查看日程', intent: '首页 / 意图视图', energy: '首页 / 能量视图', context: '首页 / 情境视图', weather: '首页 / 天气视图' };
     document.getElementById('pageTitle').textContent = titles[page];
     document.getElementById('breadcrumb').textContent = breadcrumbs[page];
     if (page === 'dashboard') refreshDashboard();
     if (page === 'schedules') renderSchedules();
+    if (page === 'intent') renderIntentView();
+    if (page === 'energy') renderEnergyView();
+    if (page === 'context') renderContextView('all');
+    if (page === 'weather') renderWeatherView();
     closeMobileMenu();
 }
 
@@ -232,8 +236,17 @@ function setDefaultFormValues() {
     start.setMinutes(0, 0, 0);
     const end = new Date(start);
     end.setHours(end.getHours() + 2);
-    document.getElementById('scheduleStart').value = formatDateTimeLocal(start);
-    document.getElementById('scheduleEnd').value = formatDateTimeLocal(end);
+    setPickerValue('scheduleStart', start);
+    setPickerValue('scheduleEnd', end);
+}
+
+function setPickerValue(inputId, date) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    const stored = formatDateTimeLocal(date);
+    const display = `${date.getFullYear()}年${date.getMonth()+1}月${date.getDate()}日 ${String(date.getHours()).padStart(2,'0')}:${String(date.getMinutes()).padStart(2,'0')}`;
+    input.value = display;
+    input.dataset.storedValue = stored;
 }
 
 function formatDateTimeLocal(date) {
@@ -297,17 +310,19 @@ function refreshDashboard() {
 async function handleManualSubmit(e) {
     e.preventDefault();
     const title = document.getElementById('scheduleTitle').value.trim();
-    const start = document.getElementById('scheduleStart').value;
-    const end = document.getElementById('scheduleEnd').value;
+    const start = document.getElementById('scheduleStart').dataset.storedValue || '';
+    const end = document.getElementById('scheduleEnd').dataset.storedValue || '';
     const desc = document.getElementById('scheduleDesc').value.trim();
     const priority = document.querySelector('input[name="priority"]:checked').value;
     const urgency = document.querySelector('input[name="urgency"]:checked').value;
+    const category = document.querySelector('input[name="category"]:checked').value;
+    const context_type = document.querySelector('input[name="context_type"]:checked').value;
 
     if (!title || !start || !end) { showToast('请填写完整信息', 'error'); return false; }
     if (new Date(end) <= new Date(start)) { showToast('结束时间必须晚于开始时间', 'error'); return false; }
 
     const id = Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
-    await apiPost({ id, title, description: desc, start, end, priority, urgency });
+    await apiPost({ id, title, description: desc, start, end, priority, urgency, category, context_type });
 
     document.getElementById('manualForm').reset();
     setDefaultFormValues();
@@ -435,13 +450,17 @@ function openEditModal(id) {
     if (!s) return;
     document.getElementById('editId').value = id;
     document.getElementById('editTitle').value = s.title;
-    document.getElementById('editStart').value = formatDateTimeLocal(new Date(s.start));
-    document.getElementById('editEnd').value = formatDateTimeLocal(new Date(s.end));
+    setPickerValue('editStart', new Date(s.start));
+    setPickerValue('editEnd', new Date(s.end));
     document.getElementById('editDesc').value = s.description || '';
     const pr = document.querySelector(`input[name="editPriority"][value="${s.priority}"]`);
     if (pr) pr.checked = true;
     const ur = document.querySelector(`input[name="editUrgency"][value="${s.urgency || 'normal'}"]`);
     if (ur) ur.checked = true;
+    const cat = document.querySelector(`input[name="editCategory"][value="${s.category || 'work'}"]`);
+    if (cat) cat.checked = true;
+    const ctx = document.querySelector(`input[name="editContext"][value="${s.context_type || 'anywhere'}"]`);
+    if (ctx) ctx.checked = true;
     document.getElementById('editModal').classList.add('active');
 }
 
@@ -454,17 +473,19 @@ async function handleEditSubmit(e) {
     if (e) e.preventDefault();
     const id = document.getElementById('editId').value;
     const title = document.getElementById('editTitle').value.trim();
-    const start = document.getElementById('editStart').value;
-    const end = document.getElementById('editEnd').value;
+    const start = document.getElementById('editStart').dataset.storedValue || '';
+    const end = document.getElementById('editEnd').dataset.storedValue || '';
     const desc = document.getElementById('editDesc').value.trim();
     const priority = document.querySelector('input[name="editPriority"]:checked').value;
     const urgency = document.querySelector('input[name="editUrgency"]:checked').value;
+    const category = document.querySelector('input[name="editCategory"]:checked').value;
+    const context_type = document.querySelector('input[name="editContext"]:checked').value;
 
     if (!title || !start || !end) { showToast('请填写完整信息', 'error'); return false; }
     if (new Date(end) <= new Date(start)) { showToast('结束时间必须晚于开始时间', 'error'); return false; }
 
     const s = schedules.find(x => x.id === id);
-    await apiPut(id, { title, description: desc, start, end, priority, urgency, completed: s ? s.completed : false });
+    await apiPut(id, { title, description: desc, start, end, priority, urgency, category, context_type, completed: s ? s.completed : false });
     closeEditModal();
     await loadSchedules();
     showToast('日程已更新');
@@ -1441,4 +1462,468 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
     loadMusicTracks();
+    // 初始化能量视图chronotype
+    const savedChronotype = localStorage.getItem('mimo_chronotype') || 'morning';
+    document.querySelectorAll('.chronotype-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.type === savedChronotype);
+    });
+});
+
+// ========================================
+// 视角视图 - 辅助函数
+// ========================================
+const CATEGORY_LABELS = { work: '工作', personal: '个人成长', family: '家庭', health: '健康' };
+const CATEGORY_COLORS = { work: '#ff8c32', personal: '#8b5cf6', family: '#34d399', health: '#3b82f6' };
+const CONTEXT_LABELS = { computer: '电脑前', phone: '打电话', outdoor: '外出', meeting: '会议', anywhere: '无特定' };
+const CONTEXT_ICONS = { computer: '💻', phone: '📞', outdoor: '🚶', meeting: '👥', anywhere: '🌍' };
+const ENERGY_LABELS = { high: '高能量', medium: '中能量', low: '低能量' };
+
+function getChronotypeProfile(type) {
+    // 0=低能量, 1=中能量, 2=高能量
+    const morning = [0,0,0,0,0,1,1,2,2,2,2,2,1,1,0,0,1,1,2,2,1,0,0,0];
+    const night   = [0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,2,2,2,1,1,1,0,0];
+    return type === 'morning' ? morning : night;
+}
+
+// ========================================
+// 意图视图
+// ========================================
+async function renderIntentView() {
+    try {
+        const res = await fetch('/api/schedules/stats');
+        const stats = await res.json();
+
+        // 渲染时间分配条
+        const bar = document.getElementById('intentBar');
+        const legend = document.getElementById('intentLegend');
+        const cats = stats.byCategory || [];
+        const totalMinutes = cats.reduce((sum, c) => sum + (c.totalMinutes || 0), 0);
+
+        if (totalMinutes === 0) {
+            bar.innerHTML = '<div class="intent-bar-empty">暂无数据，请先创建日程</div>';
+            legend.innerHTML = '';
+        } else {
+            bar.innerHTML = cats.map(c => {
+                const pct = ((c.totalMinutes || 0) / totalMinutes * 100).toFixed(1);
+                const hours = Math.floor((c.totalMinutes || 0) / 60);
+                const mins = (c.totalMinutes || 0) % 60;
+                return `<div class="intent-bar-segment ${c.category}" style="width:${pct}%" title="${CATEGORY_LABELS[c.category]}: ${hours}h${mins}m (${pct}%)"></div>`;
+            }).join('');
+            legend.innerHTML = cats.map(c => {
+                const pct = ((c.totalMinutes || 0) / totalMinutes * 100).toFixed(1);
+                return `<div class="intent-legend-item"><span class="intent-legend-dot" style="background:${CATEGORY_COLORS[c.category]}"></span>${CATEGORY_LABELS[c.category]} ${pct}%</div>`;
+            }).join('');
+        }
+
+        // 渲染分类卡片
+        const container = document.getElementById('intentCategories');
+        const categories = ['work', 'personal', 'family', 'health'];
+        container.innerHTML = categories.map(cat => {
+            const catSchedules = schedules.filter(s => (s.category || 'work') === cat);
+            const catMinutes = cats.find(c => c.category === cat)?.totalMinutes || 0;
+            const hours = Math.floor(catMinutes / 60);
+            const mins = catMinutes % 60;
+            return `
+            <div class="card intent-category-card">
+                <div class="card-header">
+                    <h3><span class="intent-cat-dot" style="background:${CATEGORY_COLORS[cat]}"></span>${CATEGORY_LABELS[cat]}</h3>
+                    <span class="intent-cat-time">${hours}h ${mins}m</span>
+                </div>
+                <div class="card-body">
+                    ${catSchedules.length === 0 ? '<div class="empty-hint">暂无日程</div>' :
+                    catSchedules.slice(0, 5).map(s => {
+                        const ti = formatTimeDisplay(s.start, s.end);
+                        return `<div class="schedule-item" onclick="openDetailModal('${s.id}')" style="cursor:pointer">
+                            <div class="schedule-priority ${s.priority}"></div>
+                            <div class="schedule-info">
+                                <div class="schedule-title">${escapeHtml(s.title)}</div>
+                                <div class="schedule-desc">${ti.date} ${ti.time}</div>
+                            </div>
+                        </div>`;
+                    }).join('')}
+                    ${catSchedules.length > 5 ? `<div class="intent-more">还有 ${catSchedules.length - 5} 项...</div>` : ''}
+                </div>
+            </div>`;
+        }).join('');
+    } catch (err) {
+        console.error('渲染意图视图失败:', err);
+    }
+}
+
+// ========================================
+// 能量视图
+// ========================================
+function setChronotype(type) {
+    localStorage.setItem('mimo_chronotype', type);
+    document.querySelectorAll('.chronotype-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.type === type);
+    });
+    renderEnergyView();
+}
+
+async function renderEnergyView() {
+    const chronotype = localStorage.getItem('mimo_chronotype') || 'morning';
+    const profile = getChronotypeProfile(chronotype);
+
+    // 渲染24小时时间线
+    const timeline = document.getElementById('energyTimeline');
+    const now = new Date();
+    const currentHour = now.getHours();
+
+    timeline.innerHTML = profile.map((level, hour) => {
+        const isCurrent = hour === currentHour;
+        const levelClass = level === 2 ? 'high' : level === 1 ? 'medium' : 'low';
+        return `<div class="energy-cell ${levelClass} ${isCurrent ? 'current' : ''}" title="${hour}:00 - ${ENERGY_LABELS[level]}">
+            <span class="energy-cell-hour">${hour}</span>
+        </div>`;
+    }).join('');
+
+    // 渲染日程按能量分组
+    const container = document.getElementById('energySchedules');
+    const pendingSchedules = schedules.filter(s => !s.completed);
+
+    if (pendingSchedules.length === 0) {
+        container.innerHTML = '<div class="card"><div class="card-body"><div class="empty-hint">暂无待处理日程</div></div></div>';
+        return;
+    }
+
+    // 按能量等级分组
+    const groups = { high: [], medium: [], low: [] };
+    pendingSchedules.forEach(s => {
+        const level = s.energy_level || 'medium';
+        groups[level].push(s);
+    });
+
+    container.innerHTML = Object.entries(groups).map(([level, items]) => {
+        if (items.length === 0) return '';
+        return `
+        <div class="card energy-group-card">
+            <div class="card-header">
+                <h3><span class="energy-dot ${level}"></span>${ENERGY_LABELS[level]}任务 (${items.length})</h3>
+            </div>
+            <div class="card-body">
+                ${items.map(s => {
+                    const ti = formatTimeDisplay(s.start, s.end);
+                    const hour = new Date(s.start).getHours();
+                    const slotEnergy = profile[hour];
+                    const mismatch = (level === 'high' && slotEnergy < 2) || (level === 'medium' && slotEnergy === 0);
+                    return `<div class="schedule-item ${mismatch ? 'energy-mismatch' : ''}" onclick="openDetailModal('${s.id}')" style="cursor:pointer">
+                        <div class="schedule-priority ${s.priority}"></div>
+                        <div class="schedule-info">
+                            <div class="schedule-title">${escapeHtml(s.title)}</div>
+                            <div class="schedule-desc">${ti.date} ${ti.time}</div>
+                        </div>
+                        ${mismatch ? '<span class="energy-warning" title="此时间段能量不足">⚠️</span>' : ''}
+                    </div>`;
+                }).join('')}
+            </div>
+        </div>`;
+    }).join('');
+}
+
+// ========================================
+// 情境视图
+// ========================================
+function filterByContext(type, btn) {
+    document.querySelectorAll('#contextFilterBar .filter-btn').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    renderContextView(type);
+}
+
+async function renderContextView(type) {
+    const container = document.getElementById('contextContent');
+    let filtered = schedules;
+
+    if (type && type !== 'all') {
+        filtered = schedules.filter(s => (s.context_type || 'anywhere') === type);
+    }
+
+    if (filtered.length === 0) {
+        container.innerHTML = '<div class="empty-hint">该情境下暂无日程</div>';
+        return;
+    }
+
+    // 如果是外出情境，显示路线建议
+    if (type === 'outdoor') {
+        const sorted = [...filtered].sort((a, b) => new Date(a.start) - new Date(b.start));
+        container.innerHTML = `
+        <div class="card route-card">
+            <div class="card-header"><h3>🗺️ 最优路线建议</h3></div>
+            <div class="card-body">
+                <div class="route-list">
+                    ${sorted.map((s, i) => {
+                        const ti = formatTimeDisplay(s.start, s.end);
+                        return `<div class="route-item">
+                            <div class="route-num">${i + 1}</div>
+                            <div class="route-connector"></div>
+                            <div class="route-info">
+                                <div class="route-title">${escapeHtml(s.title)}</div>
+                                <div class="route-time">${ti.date} ${ti.time}</div>
+                            </div>
+                        </div>`;
+                    }).join('')}
+                </div>
+            </div>
+        </div>`;
+    } else {
+        container.innerHTML = filtered.map(s => {
+            const ti = formatTimeDisplay(s.start, s.end);
+            const ctx = s.context_type || 'anywhere';
+            return `<div class="schedule-item" onclick="openDetailModal('${s.id}')" style="cursor:pointer">
+                <div class="schedule-priority ${s.priority}"></div>
+                <div class="schedule-info">
+                    <div class="schedule-title">${escapeHtml(s.title)}</div>
+                    <div class="schedule-desc">${ti.date} ${ti.time}</div>
+                </div>
+                <span class="context-icon-small">${CONTEXT_ICONS[ctx]}</span>
+            </div>`;
+        }).join('');
+    }
+}
+
+// ========================================
+// 天气视图
+// ========================================
+let currentWeather = null;
+
+async function renderWeatherView() {
+    const city = localStorage.getItem('mimo_weather_city') || 'Beijing';
+    document.getElementById('weatherCityInput').value = city;
+
+    try {
+        const res = await fetch(`/api/weather?city=${encodeURIComponent(city)}`);
+        const data = await res.json();
+
+        const card = document.getElementById('weatherCard');
+        if (data.error) {
+            card.querySelector('.card-body').innerHTML = `<div class="weather-error">${data.error}</div>`;
+            return;
+        }
+
+        currentWeather = data;
+        card.querySelector('.card-body').innerHTML = `
+        <div class="weather-main ${data.isBadWeather ? 'bad' : 'good'}">
+            <div class="weather-icon-large">${data.icon}</div>
+            <div class="weather-info">
+                <div class="weather-temp">${data.temp}°C</div>
+                <div class="weather-desc">${data.condition}</div>
+                <div class="weather-city-name">${data.city || city}</div>
+            </div>
+            ${data.isBadWeather ? '<div class="weather-badge-bad">⚠️ 恶劣天气</div>' : '<div class="weather-badge-good">✅ 适合户外</div>'}
+        </div>`;
+
+        // 户外任务
+        const outdoorTasks = schedules.filter(s => !s.completed && (s.context_type || 'anywhere') === 'outdoor');
+        const outdoorContainer = document.getElementById('weatherOutdoorTasks');
+        if (outdoorTasks.length === 0) {
+            outdoorContainer.innerHTML = '<div class="empty-hint">没有户外任务</div>';
+        } else {
+            outdoorContainer.innerHTML = outdoorTasks.map(s => {
+                const ti = formatTimeDisplay(s.start, s.end);
+                return `<div class="schedule-item ${data.isBadWeather ? 'weather-warning-item' : ''}" onclick="openDetailModal('${s.id}')" style="cursor:pointer">
+                    <div class="schedule-priority ${s.priority}"></div>
+                    <div class="schedule-info">
+                        <div class="schedule-title">${escapeHtml(s.title)}</div>
+                        <div class="schedule-desc">${ti.date} ${ti.time}</div>
+                    </div>
+                    ${data.isBadWeather ? '<span class="energy-warning">⚠️</span>' : ''}
+                </div>`;
+            }).join('');
+        }
+
+        // 室内替代
+        const indoorContainer = document.getElementById('weatherIndoorTasks');
+        const indoorTasks = schedules.filter(s => !s.completed && ['computer', 'anywhere', 'phone'].includes(s.context_type || 'anywhere'));
+        if (indoorTasks.length === 0) {
+            indoorContainer.innerHTML = '<div class="empty-hint">没有可替代的室内任务</div>';
+        } else {
+            indoorContainer.innerHTML = indoorTasks.slice(0, 5).map(s => {
+                const ti = formatTimeDisplay(s.start, s.end);
+                return `<div class="schedule-item" onclick="openDetailModal('${s.id}')" style="cursor:pointer">
+                    <div class="schedule-priority ${s.priority}"></div>
+                    <div class="schedule-info">
+                        <div class="schedule-title">${escapeHtml(s.title)}</div>
+                        <div class="schedule-desc">${ti.date} ${ti.time}</div>
+                    </div>
+                    <span class="context-icon-small">${CONTEXT_ICONS[s.context_type || 'anywhere']}</span>
+                </div>`;
+            }).join('');
+        }
+    } catch (err) {
+        console.error('加载天气失败:', err);
+        document.getElementById('weatherCard').querySelector('.card-body').innerHTML = '<div class="weather-error">天气加载失败</div>';
+    }
+}
+
+function changeWeatherCity() {
+    const city = document.getElementById('weatherCityInput').value.trim();
+    if (!city) { showToast('请输入城市名', 'error'); return; }
+    localStorage.setItem('mimo_weather_city', city);
+    renderWeatherView();
+    showToast('已切换到 ' + city);
+}
+
+// ========================================
+// 日期时间选择器
+// ========================================
+let dtPickerTarget = null; // 目标 input 元素
+let dtPickerDate = null;   // 选中的 Date 对象
+let dtPickerHour = 9;
+let dtPickerMinute = 0;
+
+function openDateTimePicker(targetId) {
+    const input = document.getElementById(targetId);
+    if (!input) return;
+    dtPickerTarget = input;
+
+    // 解析已有值
+    const stored = input.dataset.storedValue;
+    if (stored) {
+        const d = new Date(stored);
+        dtPickerDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+        dtPickerHour = d.getHours();
+        dtPickerMinute = d.getMinutes();
+    } else {
+        const now = new Date();
+        dtPickerDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        dtPickerHour = now.getHours();
+        dtPickerMinute = Math.ceil(now.getMinutes() / 5) * 5;
+        if (dtPickerMinute >= 60) dtPickerMinute = 0;
+    }
+
+    dtPickerRenderCalendar();
+    dtPickerRenderWheels();
+    document.getElementById('dtPickerPopup').classList.add('active');
+}
+
+function closeDateTimePicker(confirm) {
+    document.getElementById('dtPickerPopup').classList.remove('active');
+    if (!confirm || !dtPickerTarget) return;
+
+    const d = dtPickerDate;
+    const h = dtPickerHour;
+    const m = dtPickerMinute;
+    const stored = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}T${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+    const display = `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日 ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+
+    dtPickerTarget.value = display;
+    dtPickerTarget.dataset.storedValue = stored;
+    dtPickerTarget = null;
+}
+
+function dtPickerRenderCalendar() {
+    const d = dtPickerDate;
+    const year = d.getFullYear();
+    const month = d.getMonth();
+
+    document.getElementById('dtCalMonthLabel').textContent = `${year}年${month + 1}月`;
+
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const daysInPrev = new Date(year, month, 0).getDate();
+    const today = new Date();
+    const isCurrentMonth = today.getFullYear() === year && today.getMonth() === month;
+
+    const container = document.getElementById('dtCalDays');
+    let html = '';
+
+    // 上月补位
+    for (let i = firstDay - 1; i >= 0; i--) {
+        html += `<button class="dt-cal-day other-month" data-day="${daysInPrev - i}" onclick="dtPickerSelectDay(${daysInPrev - i}, true)">${daysInPrev - i}</button>`;
+    }
+
+    // 本月
+    for (let day = 1; day <= daysInMonth; day++) {
+        const isToday = isCurrentMonth && day === today.getDate();
+        const isSelected = day === d.getDate();
+        html += `<button class="dt-cal-day${isToday ? ' today' : ''}${isSelected ? ' selected' : ''}" data-day="${day}" onclick="dtPickerSelectDay(${day}, false)">${day}</button>`;
+    }
+
+    // 下月补位
+    const totalCells = firstDay + daysInMonth;
+    const remaining = (7 - (totalCells % 7)) % 7;
+    for (let i = 1; i <= remaining; i++) {
+        html += `<button class="dt-cal-day other-month" data-day="${i}" onclick="dtPickerSelectDay(${i}, true)">${i}</button>`;
+    }
+
+    container.innerHTML = html;
+}
+
+function dtPickerSelectDay(day, isOther) {
+    if (isOther) return;
+    dtPickerDate = new Date(dtPickerDate.getFullYear(), dtPickerDate.getMonth(), day);
+    dtPickerRenderCalendar();
+}
+
+function dtPickerNavMonth(offset) {
+    dtPickerDate = new Date(dtPickerDate.getFullYear(), dtPickerDate.getMonth() + offset, 1);
+    dtPickerRenderCalendar();
+}
+
+function dtPickerRenderWheels() {
+    const hourWheel = document.getElementById('dtHourWheel');
+    const minuteWheel = document.getElementById('dtMinuteWheel');
+
+    // 小时选项
+    let hHtml = '';
+    for (let h = 0; h < 24; h++) {
+        hHtml += `<button class="dt-time-option${h === dtPickerHour ? ' selected' : ''}" data-value="${h}" onclick="dtPickerSelectHour(${h})">${String(h).padStart(2, '0')}</button>`;
+    }
+    hourWheel.innerHTML = hHtml;
+
+    // 分钟选项（5分钟步进）
+    let mHtml = '';
+    for (let m = 0; m < 60; m += 5) {
+        mHtml += `<button class="dt-time-option${m === dtPickerMinute ? ' selected' : ''}" data-value="${m}" onclick="dtPickerSelectMinute(${m})">${String(m).padStart(2, '0')}</button>`;
+    }
+    minuteWheel.innerHTML = mHtml;
+
+    // 滚动到选中项
+    requestAnimationFrame(() => {
+        dtPickerScrollToSelected(hourWheel, dtPickerHour);
+        dtPickerScrollToSelected(minuteWheel, dtPickerMinute);
+    });
+}
+
+function dtPickerSelectHour(h) {
+    dtPickerHour = h;
+    document.querySelectorAll('#dtHourWheel .dt-time-option').forEach(el => {
+        el.classList.toggle('selected', parseInt(el.dataset.value) === h);
+    });
+    dtPickerScrollToSelected(document.getElementById('dtHourWheel'), h);
+}
+
+function dtPickerSelectMinute(m) {
+    dtPickerMinute = m;
+    document.querySelectorAll('#dtMinuteWheel .dt-time-option').forEach(el => {
+        el.classList.toggle('selected', parseInt(el.dataset.value) === m);
+    });
+    dtPickerScrollToSelected(document.getElementById('dtMinuteWheel'), m);
+}
+
+function dtPickerScrollToSelected(wheel, value) {
+    const options = wheel.querySelectorAll('.dt-time-option');
+    options.forEach(opt => {
+        if (parseInt(opt.dataset.value) === value) {
+            opt.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }
+    });
+}
+
+// 绑定日期时间输入框点击事件
+document.addEventListener('click', (e) => {
+    const pickerInput = e.target.closest('.dt-picker-input');
+    if (pickerInput) {
+        openDateTimePicker(pickerInput.id);
+    }
+});
+
+// Escape 关闭选择器
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        const popup = document.getElementById('dtPickerPopup');
+        if (popup && popup.classList.contains('active')) {
+            closeDateTimePicker(false);
+        }
+    }
 });
