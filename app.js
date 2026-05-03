@@ -1026,6 +1026,7 @@ async function sendAiMessage() {
 
         if (data.reply) {
             renderAiMessage('assistant', formatAiReply(data.reply));
+            autoSpeakText(data.reply);
         }
 
         if (data.schedules && data.schedules.length) {
@@ -1082,6 +1083,32 @@ function formatAiReply(text) {
     html = html.replace(/<\/(?:ol|ul)><br>/g, '</$1>');
     html = html.replace(/<br><(?:ol|ul)/g, '<$1');
     return html;
+}
+
+let currentAudio = null;
+async function autoSpeakText(text) {
+    if (!text || !text.trim()) return;
+    // 停止当前播放
+    if (currentAudio) {
+        currentAudio.pause();
+        currentAudio = null;
+    }
+    try {
+        const res = await fetch('/api/tts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: text.trim() }),
+        });
+        if (!res.ok) return;
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        currentAudio = audio;
+        audio.playbackRate = 1.3;
+        audio.onended = () => { currentAudio = null; URL.revokeObjectURL(url); };
+        audio.onerror = () => { currentAudio = null; URL.revokeObjectURL(url); };
+        audio.play();
+    } catch {}
 }
 
 function renderAiSchedulePreview(schedules) {
@@ -3044,6 +3071,7 @@ async function sendGoalAiMessage() {
             chatBody.innerHTML += `<div class="ai-message assistant"><div class="ai-message-content" style="color:var(--red)">${escapeHtml(data.error)}</div></div>`;
         } else {
             chatBody.innerHTML += `<div class="ai-message assistant"><div class="ai-message-content">${formatAiReply(data.reply)}</div></div>`;
+            autoSpeakText(data.reply);
             if (data.goal) {
                 chatBody.innerHTML += `
                     <div class="ai-goal-preview">
@@ -3315,6 +3343,7 @@ async function sendReviewMessage() {
 
         if (data.reply) {
             renderReviewMessage('assistant', formatAiReply(data.reply));
+            autoSpeakText(data.reply);
         }
     } catch (err) {
         const loadingEl = document.getElementById(loadingId);

@@ -1827,6 +1827,68 @@ app.get('*', (req, res) => {
 // ========================================
 // 启动服务器
 // ========================================
+// ========================================
+// TTS 语音合成
+// ========================================
+app.post('/api/tts', async (req, res) => {
+    try {
+        const { text } = req.body;
+        if (!text || !text.trim()) return res.status(400).json({ error: '请输入要合成的文本' });
+
+        const apiKey = process.env.MIMO_API_KEY;
+        if (!apiKey || apiKey === 'your-api-key-here') {
+            return res.status(500).json({ error: '请先在 .env 文件中配置 MIMO_API_KEY' });
+        }
+
+        const voicePrompt = '用温柔的女声朗读以下内容';
+
+        const aiRes = await fetch('https://token-plan-cn.xiaomimimo.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+                model: 'mimo-v2.5-tts-voicedesign',
+                messages: [
+                    { role: 'user', content: voicePrompt },
+                    { role: 'assistant', content: text.trim() },
+                ],
+                stream: false,
+            }),
+            signal: AbortSignal.timeout(30000), // 缩短超时时间到30秒
+        });
+
+        if (!aiRes.ok) {
+            const errText = await aiRes.text();
+            console.error('TTS API 错误:', aiRes.status, errText);
+            return res.status(502).json({ error: '语音合成服务暂时不可用' });
+        }
+
+        const data = await aiRes.json();
+        const audioB64 = data.choices?.[0]?.message?.audio?.data;
+
+        if (!audioB64) {
+            return res.status(502).json({ error: '未获取到语音数据' });
+        }
+
+        const wavBuffer = Buffer.from(audioB64, 'base64');
+
+        res.set({
+            'Content-Type': 'audio/wav',
+            'Content-Length': wavBuffer.length,
+            'Cache-Control': 'public, max-age=3600', // 缓存1小时
+        });
+        res.send(wavBuffer);
+    } catch (err) {
+        console.error('TTS 失败:', err);
+        if (err.name === 'TimeoutError' || err.code === 'ABORT_ERR') {
+            return res.status(504).json({ error: '语音合成超时' });
+        }
+        res.status(500).json({ error: '语音合成失败: ' + err.message });
+    }
+});
+
 // 全局错误处理
 app.use((err, req, res, next) => {
     console.error('[ERROR]', err.message);
