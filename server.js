@@ -4,6 +4,7 @@ const mysql = require('mysql2/promise');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const zlib = require('zlib');
 const multer = require('multer');
 
 const app = express();
@@ -50,6 +51,40 @@ const pool = mysql.createPool({
 // ========================================
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
+
+// gzip 压缩
+app.use((req, res, next) => {
+    if (req.headers['x-no-compression']) return next();
+    const accept = req.headers['accept-encoding'] || '';
+    if (!accept.includes('gzip')) return next();
+    const ext = path.extname(req.url).toLowerCase();
+    const compressible = ['.html', '.css', '.js', '.json', '.svg', '.xml', '.txt'];
+    if (!compressible.includes(ext) && req.url !== '/') return next();
+    const chunks = [];
+    const origWrite = res.write.bind(res);
+    const origEnd = res.end.bind(res);
+    res.write = (data, ...args) => { chunks.push(Buffer.isBuffer(data) ? data : Buffer.from(data)); return true; };
+    res.end = (data, ...args) => {
+        if (data) chunks.push(Buffer.isBuffer(data) ? data : Buffer.from(data));
+        const body = Buffer.concat(chunks);
+        if (body.length < 256) { origEnd(body); return; }
+        zlib.gzip(body, (err, compressed) => {
+            if (err || compressed.length >= body.length) { origEnd(body); return; }
+            res.setHeader('Content-Encoding', 'gzip');
+            res.setHeader('Content-Length', compressed.length);
+            res.removeHeader('Content-Type');
+            origEnd(compressed);
+        });
+    };
+    next();
+});
+
+// 仅服务必要静态文件，排除 node_modules
+const staticExcludes = ['/node_modules/'];
+app.use((req, res, next) => {
+    if (staticExcludes.some(ex => req.url.includes(ex))) return res.status(404).end();
+    next();
+});
 app.use(express.static(__dirname, { index: 'index.html' }));
 app.use('/uploads', express.static(uploadsDir));
 
@@ -208,6 +243,37 @@ app.patch('/api/schedules/:id/toggle', async (req, res) => {
         const completedAt = newVal ? new Date() : null;
         await pool.query('UPDATE schedules SET completed=?, completed_at=? WHERE id=?', [newVal, completedAt, req.params.id]);
         res.json({ success: true, completed: newVal, completed_at: completedAt });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 取消日程
+app.patch('/api/schedules/:id/cancel', async (req, res) => {
+    try {
+        const [rows] = await pool.query('SELECT id FROM schedules WHERE id=?', [req.params.id]);
+        if (rows.length === 0) return res.status(404).json({ error: '日程不存在' });
+        const { cancel_reason } = req.body;
+        await pool.query(
+            'UPDATE schedules SET cancel_reason=?, cancelled_at=NOW() WHERE id=?',
+            [cancel_reason || null, req.params.id]
+        );
+        res.json({ success: true, cancel_reason, cancelled_at: new Date() });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 恢复已取消的日程
+app.patch('/api/schedules/:id/restore', async (req, res) => {
+    try {
+        const [rows] = await pool.query('SELECT id FROM schedules WHERE id=?', [req.params.id]);
+        if (rows.length === 0) return res.status(404).json({ error: '日程不存在' });
+        await pool.query(
+            'UPDATE schedules SET cancel_reason=NULL, cancelled_at=NULL WHERE id=?',
+            [req.params.id]
+        );
+        res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -372,10 +438,7 @@ app.get('/api/schedules/stats', async (req, res) => {
         const [byEnergy] = await pool.query(
             `SELECT energy_level, COUNT(*) as count FROM schedules GROUP BY energy_level`
         );
-        const [byContext] = await pool.query(
-            `SELECT context_type, COUNT(*) as count FROM schedules GROUP BY context_type`
-        );
-        res.json({ byCategory, byEnergy, byContext });
+        res.json({ byCategory, byEnergy });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -387,7 +450,9 @@ app.get('/api/schedules/stats', async (req, res) => {
 app.get('/api/weather', async (req, res) => {
     try {
         const city = req.query.city || 'Beijing';
-        const weatherRes = await fetch(`https://wttr.in/${encodeURIComponent(city)}?format=j1`);
+        const weatherRes = await fetch(`https://wttr.in/${encodeURIComponent(city)}?format=j1`, {
+            signal: AbortSignal.timeout(5000),
+        });
         if (!weatherRes.ok) return res.status(502).json({ error: '天气服务不可用' });
         const data = await weatherRes.json();
         const current = data.current_condition?.[0];
@@ -416,6 +481,53 @@ app.get('/api/weather', async (req, res) => {
         else if (code >= 248 && code <= 260) icon = '🌫️';
 
         res.json({ temp, condition: desc, icon, isBadWeather, city });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 多日天气预报
+app.get('/api/weather/forecast', async (req, res) => {
+    try {
+        const city = req.query.city || 'Beijing';
+        const days = Math.min(parseInt(req.query.days) || 3, 7);
+        const weatherRes = await fetch(`https://wttr.in/${encodeURIComponent(city)}?format=j1`, {
+            signal: AbortSignal.timeout(5000),
+        });
+        if (!weatherRes.ok) return res.status(502).json({ error: '天气服务不可用' });
+        const data = await weatherRes.json();
+
+        function mapWeatherCode(code, temp) {
+            const c = parseInt(code);
+            const t = parseInt(temp);
+            const isBad = (c >= 296 && c <= 399) || (c >= 179 && c <= 199)
+                || (c >= 200 && c <= 299) || t >= 35 || t <= -10;
+            let icon = '☀️';
+            if (c >= 179 && c <= 199) icon = '🌨️';
+            else if (c >= 200 && c <= 299) icon = '⛈️';
+            else if (c >= 296 && c <= 399) icon = '🌧️';
+            else if (c === 113) icon = '☀️';
+            else if (c === 116) icon = '⛅';
+            else if (c === 119 || c === 122) icon = '☁️';
+            else if (c === 143 || (c >= 248 && c <= 260)) icon = '🌫️';
+            return { icon, isBadWeather: isBad };
+        }
+
+        const forecast = (data.weather || []).slice(0, days).map((day, i) => {
+            const dateStr = day.date;
+            const maxTemp = parseInt(day.maxtempC);
+            const minTemp = parseInt(day.mintempC);
+            const avgCode = day.hourly?.[4]?.weatherCode || '113';
+            const avgDesc = day.hourly?.[4]?.weatherDesc?.[0]?.value || '未知';
+            const avgTemp = Math.round((maxTemp + minTemp) / 2);
+            const { icon, isBadWeather } = mapWeatherCode(avgCode, avgTemp);
+            const d = new Date(dateStr);
+            const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+            const label = i === 0 ? '今天' : i === 1 ? '明天' : `${d.getMonth() + 1}/${d.getDate()} ${weekdays[d.getDay()]}`;
+            return { date: dateStr, label, temp: avgTemp, maxTemp, minTemp, condition: avgDesc, icon, isBadWeather };
+        });
+
+        res.json({ city, forecast });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -452,7 +564,7 @@ const SYSTEM_PROMPT = `你是一个智能日程助手。用户会用自然语言
   "end": "2026-05-03T16:00",
   "priority": "low|medium|high",
   "urgency": "normal|urgent|critical",
-  "category": "work|personal|family|health",
+  "category": "work|eating|exercise|study",
   "energy_level": "high|medium|low",
   "context_type": "computer|phone|outdoor|meeting|anywhere"
 }]
@@ -480,9 +592,9 @@ const SYSTEM_PROMPT = `你是一个智能日程助手。用户会用自然语言
 ## 类别推断 (category)
 
 - 工作(work): 工作任务、会议、项目、汇报、办公相关
-- 个人成长(personal): 学习、阅读、培训、技能提升、兴趣爱好
-- 家庭(family): 家庭聚会、陪伴家人、家务、家庭事务
-- 健康(health): 运动、健身、体检、看病、养生
+- 吃饭(eating): 吃饭、用餐、聚餐、外卖、做饭
+- 运动(exercise): 运动、健身、跑步、游泳、打球、锻炼
+- 学习(study): 学习、阅读、培训、考试、写作业、看教程
 
 ## 能量等级推断 (energy_level)
 
@@ -652,6 +764,8 @@ app.use((err, req, res, next) => {
 
 // 记录连接日志
 const server = app.listen(PORT, '0.0.0.0', () => {
+    server.timeout = 30000;
+    server.keepAliveTimeout = 5000;
     console.log('');
     console.log('  ╔══════════════════════════════════════════╗');
     console.log('  ║     MIMO TODO 智能日程管理系统          ║');

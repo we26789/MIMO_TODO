@@ -94,13 +94,6 @@
                     </svg>
                     <span>能量视图</span>
                 </a>
-                <a class="nav-item" data-page="context" onclick="switchPage('context')">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                        <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
-                        <circle cx="12" cy="10" r="3"/>
-                    </svg>
-                    <span>情境视图</span>
-                </a>
                 <a class="nav-item" data-page="weather" onclick="switchPage('weather')">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                         <path d="M17 7A5 5 0 0 0 7.5 8.5 3.5 3.5 0 0 0 5 15h12a4 4 0 0 0 0-8z"/>
@@ -421,16 +414,16 @@
                                                     <span class="category-badge work">工作</span>
                                                 </label>
                                                 <label class="priority-option">
-                                                    <input type="radio" name="category" value="personal">
-                                                    <span class="category-badge personal">个人成长</span>
+                                                    <input type="radio" name="category" value="eating">
+                                                    <span class="category-badge eating">吃饭</span>
                                                 </label>
                                                 <label class="priority-option">
-                                                    <input type="radio" name="category" value="family">
-                                                    <span class="category-badge family">家庭</span>
+                                                    <input type="radio" name="category" value="exercise">
+                                                    <span class="category-badge exercise">运动</span>
                                                 </label>
                                                 <label class="priority-option">
-                                                    <input type="radio" name="category" value="health">
-                                                    <span class="category-badge health">健康</span>
+                                                    <input type="radio" name="category" value="study">
+                                                    <span class="category-badge study">学习</span>
                                                 </label>
                                             </div>
                                         </div>
@@ -534,6 +527,7 @@
                             <button class="filter-btn active" onclick="filterByStatus('all', this)">全部</button>
                             <button class="filter-btn" onclick="filterByStatus('pending', this)">待处理</button>
                             <button class="filter-btn" onclick="filterByStatus('completed', this)">已完成</button>
+                            <button class="filter-btn" onclick="filterByStatus('cancelled', this)">已取消</button>
                         </div>
                         <button class="btn btn-primary btn-sm" onclick="switchPage('create')">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -561,10 +555,23 @@
                 <!-- 意图视图 -->
                 <div class="page" id="page-intent">
                     <div class="card">
-                        <div class="card-header"><h3>时间分配概览</h3></div>
+                        <div class="card-header">
+                            <h3>时间分配概览</h3>
+                            <button class="btn btn-ghost btn-sm" onclick="showAddModuleForm()">+ 添加模块</button>
+                        </div>
                         <div class="card-body">
-                            <div class="intent-bar" id="intentBar"></div>
-                            <div class="intent-legend" id="intentLegend"></div>
+                            <div class="intent-pie-row">
+                                <div class="intent-pie" id="intentPie"></div>
+                                <div class="intent-legend" id="intentLegend"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="addModuleForm" class="card" style="display:none">
+                        <div class="card-body" style="display:flex;gap:8px;align-items:center">
+                            <input type="text" class="form-input" id="newModuleName" placeholder="模块名称" style="flex:1;max-width:200px">
+                            <input type="color" id="newModuleColor" value="#ff8c32" style="width:36px;height:36px;border:none;background:none;cursor:pointer">
+                            <button class="btn btn-primary btn-sm" onclick="addCustomModule()">添加</button>
+                            <button class="btn btn-ghost btn-sm" onclick="hideAddModuleForm()">取消</button>
                         </div>
                     </div>
                     <div class="intent-categories" id="intentCategories"></div>
@@ -572,46 +579,38 @@
 
                 <!-- 能量视图 -->
                 <div class="page" id="page-energy">
-                    <div class="card">
-                        <div class="card-header">
-                            <h3>精力波段设置</h3>
+                    <div class="energy-date-nav">
+                        <button class="dt-cal-nav-btn" onclick="energyPrevDay()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15,18 9,12 15,6"/></svg>
+                        </button>
+                        <span class="energy-date-label" id="energyDateLabel"></span>
+                        <button class="dt-cal-nav-btn" onclick="energyNextDay()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9,18 15,12 9,6"/></svg>
+                        </button>
+                        <button class="btn btn-ghost btn-sm" onclick="energyToday()" style="margin-left:8px">今天</button>
+                    </div>
+                    <div class="energy-main-row">
+                        <div class="card energy-pie-card">
+                            <div class="card-header"><h3>时段分布</h3></div>
+                            <div class="card-body">
+                                <div class="energy-pie" id="energyPie"></div>
+                                <div class="energy-pie-legend" id="energyPieLegend"></div>
+                                <div class="energy-pie-detail" id="energyPieDetail"></div>
+                            </div>
                         </div>
-                        <div class="card-body">
-                            <div class="chronotype-setting">
-                                <span class="form-label">我的类型：</span>
-                                <div class="chronotype-toggle">
-                                    <button class="chronotype-btn active" data-type="morning" onclick="setChronotype('morning')">🌅 晨型人</button>
-                                    <button class="chronotype-btn" data-type="night" onclick="setChronotype('night')">🌙 夜猫子</button>
-                                </div>
+                        <div class="card energy-timeline-card">
+                            <div class="card-header"><h3>日程时间线</h3></div>
+                            <div class="card-body">
+                                <div class="energy-timeline-v" id="energyTimelineV"></div>
                             </div>
                         </div>
                     </div>
-                    <div class="card">
-                        <div class="card-header"><h3>24小时能量曲线</h3></div>
-                        <div class="card-body">
-                            <div class="energy-timeline" id="energyTimeline"></div>
-                        </div>
-                    </div>
-                    <div class="energy-schedules" id="energySchedules"></div>
-                </div>
-
-                <!-- 情境视图 -->
-                <div class="page" id="page-context">
-                    <div class="filter-bar" id="contextFilterBar">
-                        <button class="filter-btn active" onclick="filterByContext('all', this)">全部</button>
-                        <button class="filter-btn" onclick="filterByContext('computer', this)">💻 电脑前</button>
-                        <button class="filter-btn" onclick="filterByContext('phone', this)">📞 打电话</button>
-                        <button class="filter-btn" onclick="filterByContext('outdoor', this)">🚶 外出</button>
-                        <button class="filter-btn" onclick="filterByContext('meeting', this)">👥 会议</button>
-                        <button class="filter-btn" onclick="filterByContext('anywhere', this)">🌍 无特定</button>
-                    </div>
-                    <div class="context-content" id="contextContent"></div>
                 </div>
 
                 <!-- 天气视图 -->
                 <div class="page" id="page-weather">
-                    <div class="weather-top">
-                        <div class="card weather-card" id="weatherCard">
+                    <div class="weather-top-row">
+                        <div class="card weather-today-card" id="weatherTodayCard">
                             <div class="card-body">
                                 <div class="weather-loading">加载天气中...</div>
                             </div>
@@ -628,16 +627,7 @@
                             </div>
                         </div>
                     </div>
-                    <div class="weather-sections">
-                        <div class="card">
-                            <div class="card-header"><h3>⚠️ 受天气影响的户外任务</h3></div>
-                            <div class="card-body" id="weatherOutdoorTasks"></div>
-                        </div>
-                        <div class="card">
-                            <div class="card-header"><h3>💡 建议的室内替代</h3></div>
-                            <div class="card-body" id="weatherIndoorTasks"></div>
-                        </div>
-                    </div>
+                    <div class="weather-forecast" id="weatherForecast"></div>
                 </div>
             </div>
         </main>
@@ -714,16 +704,16 @@
                                     <span class="category-badge work">工作</span>
                                 </label>
                                 <label class="priority-option">
-                                    <input type="radio" name="editCategory" value="personal">
-                                    <span class="category-badge personal">个人成长</span>
+                                    <input type="radio" name="editCategory" value="eating">
+                                    <span class="category-badge eating">吃饭</span>
                                 </label>
                                 <label class="priority-option">
-                                    <input type="radio" name="editCategory" value="family">
-                                    <span class="category-badge family">家庭</span>
+                                    <input type="radio" name="editCategory" value="exercise">
+                                    <span class="category-badge exercise">运动</span>
                                 </label>
                                 <label class="priority-option">
-                                    <input type="radio" name="editCategory" value="health">
-                                    <span class="category-badge health">健康</span>
+                                    <input type="radio" name="editCategory" value="study">
+                                    <span class="category-badge study">学习</span>
                                 </label>
                             </div>
                         </div>
@@ -791,6 +781,10 @@
                         <span class="detail-label">完成时间</span>
                         <span class="detail-value" id="detailCompletedAt"></span>
                     </div>
+                    <div class="detail-row" id="detailCancelRow" style="display:none">
+                        <span class="detail-label">取消原因</span>
+                        <span class="detail-value" id="detailCancelReason"></span>
+                    </div>
                 </div>
                 <div class="detail-section">
                     <div class="detail-label-full">描述</div>
@@ -820,7 +814,26 @@
             </div>
             <div class="modal-footer">
                 <button class="btn btn-ghost" onclick="closeDetailModal()">关闭</button>
+                <button class="btn btn-danger" id="detailCancelBtn" onclick="cancelSchedule()">取消日程</button>
                 <button class="btn btn-primary" id="detailEditBtn" onclick="editFromDetail()">编辑</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 取消日程确认模态框 -->
+    <div class="modal-overlay" id="cancelModal">
+        <div class="modal" style="max-width:420px">
+            <div class="modal-header">
+                <h3>取消日程</h3>
+                <button class="modal-close" onclick="closeCancelModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <p style="color:var(--text-secondary);margin-bottom:12px">请填写取消原因（可选）</p>
+                <textarea class="form-input" id="cancelReasonInput" rows="3" placeholder="例如：时间冲突、临时有事..."></textarea>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" onclick="closeCancelModal()">返回</button>
+                <button class="btn btn-danger" onclick="confirmCancelSchedule()">确认取消</button>
             </div>
         </div>
     </div>

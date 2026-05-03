@@ -131,6 +131,20 @@ async function apiToggle(id) {
     return res.json();
 }
 
+async function apiCancel(id, reason) {
+    const res = await fetch(`${API}/${id}/cancel`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cancel_reason: reason })
+    });
+    return res.json();
+}
+
+async function apiRestore(id) {
+    const res = await fetch(`${API}/${id}/restore`, { method: 'PATCH' });
+    return res.json();
+}
+
 // ========================================
 // 应用状态
 // ========================================
@@ -179,15 +193,14 @@ function switchPage(page) {
     document.getElementById(`page-${page}`).classList.add('active');
     document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
     document.querySelector(`[data-page="${page}"]`).classList.add('active');
-    const titles = { dashboard: '仪表盘', create: '新建日程', schedules: '查看日程', intent: '意图视图', energy: '能量视图', context: '情境视图', weather: '天气视图' };
-    const breadcrumbs = { dashboard: '首页 / 仪表盘', create: '首页 / 新建日程', schedules: '首页 / 查看日程', intent: '首页 / 意图视图', energy: '首页 / 能量视图', context: '首页 / 情境视图', weather: '首页 / 天气视图' };
+    const titles = { dashboard: '仪表盘', create: '新建日程', schedules: '查看日程', intent: '意图视图', energy: '能量视图', weather: '天气视图' };
+    const breadcrumbs = { dashboard: '首页 / 仪表盘', create: '首页 / 新建日程', schedules: '首页 / 查看日程', intent: '首页 / 意图视图', energy: '首页 / 能量视图', weather: '首页 / 天气视图' };
     document.getElementById('pageTitle').textContent = titles[page];
     document.getElementById('breadcrumb').textContent = breadcrumbs[page];
     if (page === 'dashboard') refreshDashboard();
     if (page === 'schedules') renderSchedules();
     if (page === 'intent') renderIntentView();
     if (page === 'energy') renderEnergyView();
-    if (page === 'context') renderContextView('all');
     if (page === 'weather') renderWeatherView();
     closeMobileMenu();
 }
@@ -367,8 +380,9 @@ function renderSchedules() {
         const q = searchQuery.toLowerCase();
         list = list.filter(s => s.title.toLowerCase().includes(q) || (s.description && s.description.toLowerCase().includes(q)));
     }
-    if (currentFilter === 'completed') list = list.filter(s => s.completed);
-    else if (currentFilter === 'pending') list = list.filter(s => !s.completed);
+    if (currentFilter === 'completed') list = list.filter(s => s.completed && !s.cancel_reason);
+    else if (currentFilter === 'pending') list = list.filter(s => !s.completed && !s.cancel_reason);
+    else if (currentFilter === 'cancelled') list = list.filter(s => !!s.cancel_reason);
 
     if (list.length === 0) {
         container.innerHTML = `
@@ -392,8 +406,9 @@ function renderSchedules() {
         const urgencyClass = s.urgency || 'normal';
         const timeInfo = formatTimeDisplay(s.start, s.end);
         const completedTime = s.completed && s.completed_at ? formatCompletedTime(s.completed_at) : '';
+        const isCancelled = !!s.cancel_reason;
         return `
-        <div class="schedule-item ${s.completed ? 'completed' : ''}" data-id="${s.id}" onclick="openDetailModal('${s.id}')" style="cursor:pointer">
+        <div class="schedule-item ${s.completed ? 'completed' : ''} ${isCancelled ? 'cancelled' : ''}" data-id="${s.id}" onclick="openDetailModal('${s.id}')" style="cursor:pointer">
             <div class="schedule-priority ${s.priority}"></div>
             <div class="schedule-info">
                 <div class="schedule-title">${escapeHtml(s.title)}</div>
@@ -401,6 +416,7 @@ function renderSchedules() {
                 <div class="schedule-meta">
                     <span class="meta-tag priority-tag-${s.priority}">${s.priority === 'high' ? '高优先级' : s.priority === 'medium' ? '中优先级' : '低优先级'}</span>
                     <span class="meta-tag urgency-tag-${urgencyClass}">${getUrgencyLabel(s.urgency)}</span>
+                    ${isCancelled ? `<span class="meta-tag cancelled-tag">已取消</span>` : ''}
                     ${completedTime ? `<span class="meta-tag completed-tag">${completedTime}</span>` : ''}
                 </div>
             </div>
@@ -542,7 +558,7 @@ function showSearchDropdown(results) {
         const timeInfo = formatTimeDisplay(s.start, s.end);
         const score = s.score || 0;
         return `
-        <div class="search-dropdown-item ${s.completed ? 'completed' : ''}" onclick="openDetailFromSearch('${s.id}')">
+        <div class="search-dropdown-item ${s.completed ? 'completed' : ''} ${s.cancel_reason ? 'cancelled' : ''}" onclick="openDetailFromSearch('${s.id}')">
             <div class="search-dropdown-info">
                 <div class="search-dropdown-title">${escapeHtml(s.title)}</div>
                 <div class="search-dropdown-meta">
@@ -584,7 +600,10 @@ async function openDetailModal(id) {
     document.getElementById('detailTitle').textContent = s.title;
 
     const statusEl = document.getElementById('detailStatus');
-    if (s.completed) {
+    const isCancelled = !!s.cancel_reason;
+    if (isCancelled) {
+        statusEl.innerHTML = '<span class="meta-tag cancelled-tag">已取消</span>';
+    } else if (s.completed) {
         statusEl.innerHTML = '<span class="meta-tag completed-tag">已完成</span>';
     } else {
         statusEl.innerHTML = '<span class="meta-tag urgency-tag-normal">进行中</span>';
@@ -608,6 +627,26 @@ async function openDetailModal(id) {
         completedRow.style.display = 'none';
     }
 
+    const cancelRow = document.getElementById('detailCancelRow');
+    if (isCancelled) {
+        cancelRow.style.display = '';
+        document.getElementById('detailCancelReason').textContent = s.cancel_reason;
+    } else {
+        cancelRow.style.display = 'none';
+    }
+
+    // 更新取消/恢复按钮
+    const cancelBtn = document.getElementById('detailCancelBtn');
+    if (isCancelled) {
+        cancelBtn.textContent = '恢复日程';
+        cancelBtn.className = 'btn btn-primary';
+        cancelBtn.onclick = () => restoreSchedule(id);
+    } else {
+        cancelBtn.textContent = '取消日程';
+        cancelBtn.className = 'btn btn-danger';
+        cancelBtn.onclick = () => cancelSchedule();
+    }
+
     document.getElementById('detailDesc').textContent = s.description || '暂无描述';
 
     await loadAchievements(id);
@@ -626,9 +665,39 @@ function editFromDetail() {
     openEditModal(currentDetailId);
 }
 
+function cancelSchedule() {
+    document.getElementById('cancelReasonInput').value = '';
+    document.getElementById('cancelModal').classList.add('active');
+}
+
+function closeCancelModal() {
+    document.getElementById('cancelModal').classList.remove('active');
+}
+
+async function confirmCancelSchedule() {
+    if (!currentDetailId) return;
+    const reason = document.getElementById('cancelReasonInput').value.trim();
+    await apiCancel(currentDetailId, reason || '未填写原因');
+    closeCancelModal();
+    closeDetailModal();
+    await loadSchedules();
+    showToast('日程已取消');
+}
+
+async function restoreSchedule(id) {
+    if (!confirm('确定恢复该日程？')) return;
+    await apiRestore(id);
+    closeDetailModal();
+    await loadSchedules();
+    showToast('日程已恢复');
+}
+
 // 点击模态框外部关闭
 document.getElementById('detailModal').addEventListener('click', (e) => {
     if (e.target === e.currentTarget) closeDetailModal();
+});
+document.getElementById('cancelModal').addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) closeCancelModal();
 });
 
 // ========================================
@@ -1462,76 +1531,142 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
     loadMusicTracks();
-    // 初始化能量视图chronotype
-    const savedChronotype = localStorage.getItem('mimo_chronotype') || 'morning';
-    document.querySelectorAll('.chronotype-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.type === savedChronotype);
-    });
+    // 初始化能量视图日期
+    energySelectedDate = new Date();
 });
 
 // ========================================
 // 视角视图 - 辅助函数
 // ========================================
-const CATEGORY_LABELS = { work: '工作', personal: '个人成长', family: '家庭', health: '健康' };
-const CATEGORY_COLORS = { work: '#ff8c32', personal: '#8b5cf6', family: '#34d399', health: '#3b82f6' };
+const CATEGORY_LABELS = { work: '工作', eating: '吃饭', exercise: '运动', study: '学习' };
+const CATEGORY_COLORS = { work: '#ff8c32', eating: '#34d399', exercise: '#3b82f6', study: '#8b5cf6' };
 const CONTEXT_LABELS = { computer: '电脑前', phone: '打电话', outdoor: '外出', meeting: '会议', anywhere: '无特定' };
 const CONTEXT_ICONS = { computer: '💻', phone: '📞', outdoor: '🚶', meeting: '👥', anywhere: '🌍' };
 const ENERGY_LABELS = { high: '高能量', medium: '中能量', low: '低能量' };
 
-function getChronotypeProfile(type) {
-    // 0=低能量, 1=中能量, 2=高能量
-    const morning = [0,0,0,0,0,1,1,2,2,2,2,2,1,1,0,0,1,1,2,2,1,0,0,0];
-    const night   = [0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,2,2,2,1,1,1,0,0];
-    return type === 'morning' ? morning : night;
+// 自定义模块 (从 localStorage 读取)
+function getCustomModules() {
+    try { return JSON.parse(localStorage.getItem('mimo_custom_modules') || '[]'); } catch { return []; }
+}
+function saveCustomModules(mods) {
+    localStorage.setItem('mimo_custom_modules', JSON.stringify(mods));
 }
 
 // ========================================
 // 意图视图
 // ========================================
+// 意图视图
+// ========================================
+function showAddModuleForm() { document.getElementById('addModuleForm').style.display = ''; }
+function hideAddModuleForm() { document.getElementById('addModuleForm').style.display = 'none'; }
+
+function addCustomModule() {
+    const nameInput = document.getElementById('newModuleName');
+    const colorInput = document.getElementById('newModuleColor');
+    const name = nameInput.value.trim();
+    if (!name) { showToast('请输入模块名称', 'error'); return; }
+    const key = 'custom_' + Date.now().toString(36);
+    const mods = getCustomModules();
+    mods.push({ key, name, color: colorInput.value });
+    saveCustomModules(mods);
+    nameInput.value = '';
+    hideAddModuleForm();
+    renderIntentView();
+    showToast('模块已添加');
+}
+
+function removeCustomModule(key) {
+    if (!confirm('确定删除该模块？')) return;
+    const mods = getCustomModules().filter(m => m.key !== key);
+    saveCustomModules(mods);
+    renderIntentView();
+}
+
 async function renderIntentView() {
     try {
         const res = await fetch('/api/schedules/stats');
         const stats = await res.json();
-
-        // 渲染时间分配条
-        const bar = document.getElementById('intentBar');
-        const legend = document.getElementById('intentLegend');
         const cats = stats.byCategory || [];
-        const totalMinutes = cats.reduce((sum, c) => sum + (c.totalMinutes || 0), 0);
+        const customMods = getCustomModules();
+        const allCats = [...Object.keys(CATEGORY_LABELS), ...customMods.map(m => m.key)];
+
+        // 合并自定义模块数据
+        const allCatData = allCats.map(cat => {
+            const existing = cats.find(c => c.category === cat);
+            if (existing) return existing;
+            // 自定义模块：从本地 schedules 计算
+            const catSchedules = schedules.filter(s => s.category === cat);
+            const totalMinutes = catSchedules.reduce((sum, s) => {
+                return sum + (new Date(s.end) - new Date(s.start)) / 60000;
+            }, 0);
+            return { category: cat, count: catSchedules.length, totalMinutes };
+        }).filter(c => c.count > 0 || CATEGORY_LABELS[c.category]);
+
+        const totalMinutes = allCatData.reduce((sum, c) => sum + (c.totalMinutes || 0), 0);
+
+        // 渲染 SVG 饼图
+        const pieContainer = document.getElementById('intentPie');
+        const legendContainer = document.getElementById('intentLegend');
 
         if (totalMinutes === 0) {
-            bar.innerHTML = '<div class="intent-bar-empty">暂无数据，请先创建日程</div>';
-            legend.innerHTML = '';
+            pieContainer.innerHTML = '<div class="intent-bar-empty">暂无数据，请先创建日程</div>';
+            legendContainer.innerHTML = '';
         } else {
-            bar.innerHTML = cats.map(c => {
+            const size = 180;
+            const cx = size / 2, cy = size / 2, r = 70;
+            let cumAngle = -90; // 从顶部开始
+            const slices = allCatData.filter(c => (c.totalMinutes || 0) > 0).map(c => {
+                const pct = (c.totalMinutes || 0) / totalMinutes;
+                const angle = pct * 360;
+                const startAngle = cumAngle;
+                cumAngle += angle;
+                const endAngle = cumAngle;
+                const largeArc = angle > 180 ? 1 : 0;
+                const startRad = (startAngle * Math.PI) / 180;
+                const endRad = (endAngle * Math.PI) / 180;
+                const x1 = cx + r * Math.cos(startRad);
+                const y1 = cy + r * Math.sin(startRad);
+                const x2 = cx + r * Math.cos(endRad);
+                const y2 = cy + r * Math.sin(endRad);
+                const color = CATEGORY_COLORS[c.category] || customMods.find(m => m.key === c.category)?.color || '#666';
+                return `<path d="M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${largeArc},1 ${x2},${y2} Z" fill="${color}" opacity="0.85"><title>${CATEGORY_LABELS[c.category] || c.category}: ${(pct * 100).toFixed(1)}%</title></path>`;
+            });
+            pieContainer.innerHTML = `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}">${slices.join('')}</svg>`;
+
+            legendContainer.innerHTML = allCatData.filter(c => (c.totalMinutes || 0) > 0).map(c => {
                 const pct = ((c.totalMinutes || 0) / totalMinutes * 100).toFixed(1);
+                const color = CATEGORY_COLORS[c.category] || customMods.find(m => m.key === c.category)?.color || '#666';
                 const hours = Math.floor((c.totalMinutes || 0) / 60);
                 const mins = (c.totalMinutes || 0) % 60;
-                return `<div class="intent-bar-segment ${c.category}" style="width:${pct}%" title="${CATEGORY_LABELS[c.category]}: ${hours}h${mins}m (${pct}%)"></div>`;
-            }).join('');
-            legend.innerHTML = cats.map(c => {
-                const pct = ((c.totalMinutes || 0) / totalMinutes * 100).toFixed(1);
-                return `<div class="intent-legend-item"><span class="intent-legend-dot" style="background:${CATEGORY_COLORS[c.category]}"></span>${CATEGORY_LABELS[c.category]} ${pct}%</div>`;
+                const isCustom = customMods.some(m => m.key === c.category);
+                return `<div class="intent-legend-item">
+                    <span class="intent-legend-dot" style="background:${color}"></span>
+                    <span>${CATEGORY_LABELS[c.category] || c.category} ${pct}% (${hours}h${mins}m)</span>
+                    ${isCustom ? `<button class="intent-remove-btn" onclick="removeCustomModule('${c.category}')" title="删除模块">×</button>` : ''}
+                </div>`;
             }).join('');
         }
 
         // 渲染分类卡片
         const container = document.getElementById('intentCategories');
-        const categories = ['work', 'personal', 'family', 'health'];
-        container.innerHTML = categories.map(cat => {
+        container.innerHTML = allCats.map(cat => {
             const catSchedules = schedules.filter(s => (s.category || 'work') === cat);
-            const catMinutes = cats.find(c => c.category === cat)?.totalMinutes || 0;
+            const catData = allCatData.find(c => c.category === cat);
+            const catMinutes = catData?.totalMinutes || 0;
             const hours = Math.floor(catMinutes / 60);
             const mins = catMinutes % 60;
+            const color = CATEGORY_COLORS[cat] || customMods.find(m => m.key === cat)?.color || '#666';
+            const isCustom = customMods.some(m => m.key === cat);
+            if (catSchedules.length === 0 && !CATEGORY_LABELS[cat]) return '';
             return `
             <div class="card intent-category-card">
                 <div class="card-header">
-                    <h3><span class="intent-cat-dot" style="background:${CATEGORY_COLORS[cat]}"></span>${CATEGORY_LABELS[cat]}</h3>
+                    <h3><span class="intent-cat-dot" style="background:${color}"></span>${CATEGORY_LABELS[cat] || cat}</h3>
                     <span class="intent-cat-time">${hours}h ${mins}m</span>
                 </div>
                 <div class="card-body">
                     ${catSchedules.length === 0 ? '<div class="empty-hint">暂无日程</div>' :
-                    catSchedules.slice(0, 5).map(s => {
+                    catSchedules.map(s => {
                         const ti = formatTimeDisplay(s.start, s.end);
                         return `<div class="schedule-item" onclick="openDetailModal('${s.id}')" style="cursor:pointer">
                             <div class="schedule-priority ${s.priority}"></div>
@@ -1541,7 +1676,6 @@ async function renderIntentView() {
                             </div>
                         </div>`;
                     }).join('')}
-                    ${catSchedules.length > 5 ? `<div class="intent-more">还有 ${catSchedules.length - 5} 项...</div>` : ''}
                 </div>
             </div>`;
         }).join('');
@@ -1553,132 +1687,133 @@ async function renderIntentView() {
 // ========================================
 // 能量视图
 // ========================================
-function setChronotype(type) {
-    localStorage.setItem('mimo_chronotype', type);
-    document.querySelectorAll('.chronotype-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.type === type);
-    });
+let energySelectedDate = new Date();
+
+function energyPrevDay() {
+    energySelectedDate.setDate(energySelectedDate.getDate() - 1);
+    renderEnergyView();
+}
+function energyNextDay() {
+    energySelectedDate.setDate(energySelectedDate.getDate() + 1);
+    renderEnergyView();
+}
+function energyToday() {
+    energySelectedDate = new Date();
     renderEnergyView();
 }
 
-async function renderEnergyView() {
-    const chronotype = localStorage.getItem('mimo_chronotype') || 'morning';
-    const profile = getChronotypeProfile(chronotype);
+function renderEnergyView() {
+    const d = energySelectedDate;
+    const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+    document.getElementById('energyDateLabel').textContent =
+        `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${weekdays[d.getDay()]}`;
 
-    // 渲染24小时时间线
-    const timeline = document.getElementById('energyTimeline');
-    const now = new Date();
-    const currentHour = now.getHours();
-
-    timeline.innerHTML = profile.map((level, hour) => {
-        const isCurrent = hour === currentHour;
-        const levelClass = level === 2 ? 'high' : level === 1 ? 'medium' : 'low';
-        return `<div class="energy-cell ${levelClass} ${isCurrent ? 'current' : ''}" title="${hour}:00 - ${ENERGY_LABELS[level]}">
-            <span class="energy-cell-hour">${hour}</span>
-        </div>`;
-    }).join('');
-
-    // 渲染日程按能量分组
-    const container = document.getElementById('energySchedules');
-    const pendingSchedules = schedules.filter(s => !s.completed);
-
-    if (pendingSchedules.length === 0) {
-        container.innerHTML = '<div class="card"><div class="card-body"><div class="empty-hint">暂无待处理日程</div></div></div>';
-        return;
-    }
-
-    // 按能量等级分组
-    const groups = { high: [], medium: [], low: [] };
-    pendingSchedules.forEach(s => {
-        const level = s.energy_level || 'medium';
-        groups[level].push(s);
+    // 筛选当天日程
+    const dayStart = new Date(d); dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(d); dayEnd.setHours(23, 59, 59, 999);
+    const daySchedules = schedules.filter(s => {
+        const st = new Date(s.start);
+        return st >= dayStart && st <= dayEnd;
     });
 
-    container.innerHTML = Object.entries(groups).map(([level, items]) => {
-        if (items.length === 0) return '';
-        return `
-        <div class="card energy-group-card">
-            <div class="card-header">
-                <h3><span class="energy-dot ${level}"></span>${ENERGY_LABELS[level]}任务 (${items.length})</h3>
-            </div>
-            <div class="card-body">
-                ${items.map(s => {
-                    const ti = formatTimeDisplay(s.start, s.end);
-                    const hour = new Date(s.start).getHours();
-                    const slotEnergy = profile[hour];
-                    const mismatch = (level === 'high' && slotEnergy < 2) || (level === 'medium' && slotEnergy === 0);
-                    return `<div class="schedule-item ${mismatch ? 'energy-mismatch' : ''}" onclick="openDetailModal('${s.id}')" style="cursor:pointer">
-                        <div class="schedule-priority ${s.priority}"></div>
-                        <div class="schedule-info">
-                            <div class="schedule-title">${escapeHtml(s.title)}</div>
-                            <div class="schedule-desc">${ti.date} ${ti.time}</div>
-                        </div>
-                        ${mismatch ? '<span class="energy-warning" title="此时间段能量不足">⚠️</span>' : ''}
+    // 时段分组: 早晨(6-9) 上午(9-12) 下午(12-18) 晚间(18-22) 深夜(22-6)
+    const periods = [
+        { name: '早晨', key: 'morning', hours: [6, 7, 8], color: '#ff8c32' },
+        { name: '上午', key: 'am', hours: [9, 10, 11], color: '#3b82f6' },
+        { name: '下午', key: 'pm', hours: [12, 13, 14, 15, 16, 17], color: '#34d399' },
+        { name: '晚间', key: 'evening', hours: [18, 19, 20, 21], color: '#8b5cf6' },
+        { name: '深夜', key: 'night', hours: [22, 23, 0, 1, 2, 3, 4, 5], color: '#6b7280' },
+    ];
+
+    const periodCounts = periods.map(p => ({
+        ...p,
+        count: daySchedules.filter(s => p.hours.includes(new Date(s.start).getHours())).length,
+    }));
+    const totalCount = daySchedules.length || 1;
+
+    // SVG 饼图
+    const pieContainer = document.getElementById('energyPie');
+    const legendContainer = document.getElementById('energyPieLegend');
+
+    if (daySchedules.length === 0) {
+        pieContainer.innerHTML = '<div class="intent-bar-empty">当日暂无日程</div>';
+        legendContainer.innerHTML = '';
+    } else {
+        const size = 200, cx = 100, cy = 100, r = 80;
+        let cumAngle = -90;
+        const activePeriods = periodCounts.filter(p => p.count > 0);
+        const slices = activePeriods.map((p, i) => {
+            const pct = p.count / totalCount;
+            const angle = pct * 360;
+            const startAngle = cumAngle;
+            cumAngle += angle;
+            const endAngle = cumAngle;
+            const largeArc = angle > 180 ? 1 : 0;
+            const sr = (startAngle * Math.PI) / 180;
+            const er = (endAngle * Math.PI) / 180;
+            return `<path data-pi="${i}" d="M${cx},${cy} L${cx + r * Math.cos(sr)},${cy + r * Math.sin(sr)} A${r},${r} 0 ${largeArc},1 ${cx + r * Math.cos(er)},${cy + r * Math.sin(er)} Z" fill="${p.color}" opacity="0.85"><title>${p.name}: ${p.count}个日程</title></path>`;
+        });
+        pieContainer.innerHTML = `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}">${slices.join('')}</svg>`;
+        legendContainer.innerHTML = activePeriods.map(p =>
+            `<div class="intent-legend-item"><span class="intent-legend-dot" style="background:${p.color}"></span>${p.name} ${p.count}个</div>`
+        ).join('');
+
+        // 饼图悬停交互：显示对应时段的日程
+        const detailEl = document.getElementById('energyPieDetail');
+        const svgPaths = pieContainer.querySelectorAll('svg path');
+        svgPaths.forEach(pathEl => {
+            pathEl.addEventListener('mouseenter', () => {
+                const idx = parseInt(pathEl.dataset.pi);
+                const period = activePeriods[idx];
+                // 淡化其他扇区
+                svgPaths.forEach(p => { if (p !== pathEl) p.classList.add('dimmed'); });
+                // 显示该时段日程详情
+                const periodSchedules = daySchedules.filter(s => period.hours.includes(new Date(s.start).getHours()));
+                detailEl.innerHTML = `<div class="epd-title"><span class="epd-dot" style="background:${period.color}"></span>${period.name} (${period.count}个日程)</div>` +
+                    periodSchedules.sort((a,b) => new Date(a.start) - new Date(b.start)).map(s => {
+                        const sh = new Date(s.start), eh = new Date(s.end);
+                        const st = `${String(sh.getHours()).padStart(2,'0')}:${String(sh.getMinutes()).padStart(2,'0')}`;
+                        const et = `${String(eh.getHours()).padStart(2,'0')}:${String(eh.getMinutes()).padStart(2,'0')}`;
+                        const catColor = CATEGORY_COLORS[s.category] || '#666';
+                        return `<div class="epd-item"><span>${escapeHtml(s.title)} <span style="color:${catColor};font-size:11px">${CATEGORY_LABELS[s.category] || s.category}</span></span><span class="epd-time">${st}-${et}</span></div>`;
+                    }).join('');
+                detailEl.classList.add('active');
+            });
+            pathEl.addEventListener('mouseleave', () => {
+                svgPaths.forEach(p => p.classList.remove('dimmed'));
+                detailEl.classList.remove('active');
+            });
+        });
+    }
+
+    // 纵向时间线
+    const timeline = document.getElementById('energyTimelineV');
+    const currentHour = new Date().getHours();
+    const isToday = d.toDateString() === new Date().toDateString();
+
+    let timelineHtml = '';
+    for (let h = 0; h < 24; h++) {
+        const hourSchedules = daySchedules.filter(s => new Date(s.start).getHours() === h);
+        const isCurrent = isToday && h === currentHour;
+        timelineHtml += `<div class="energy-tl-row ${isCurrent ? 'current' : ''}">
+            <div class="energy-tl-hour">${String(h).padStart(2, '0')}:00</div>
+            <div class="energy-tl-dot ${isCurrent ? 'current' : ''}"></div>
+            <div class="energy-tl-content">
+                ${hourSchedules.map(s => {
+                    const sh = new Date(s.start);
+                    const eh = new Date(s.end);
+                    const st = `${String(sh.getHours()).padStart(2, '0')}:${String(sh.getMinutes()).padStart(2, '0')}`;
+                    const et = `${String(eh.getHours()).padStart(2, '0')}:${String(eh.getMinutes()).padStart(2, '0')}`;
+                    const catColor = CATEGORY_COLORS[s.category] || '#666';
+                    return `<div class="energy-tl-block" style="border-left-color:${catColor}" onclick="openDetailModal('${s.id}')" title="${escapeHtml(s.title)}">
+                        <span class="energy-tl-block-time">${st}-${et}</span>
+                        <span class="energy-tl-block-title">${escapeHtml(s.title)}</span>
                     </div>`;
                 }).join('')}
             </div>
         </div>`;
-    }).join('');
-}
-
-// ========================================
-// 情境视图
-// ========================================
-function filterByContext(type, btn) {
-    document.querySelectorAll('#contextFilterBar .filter-btn').forEach(b => b.classList.remove('active'));
-    if (btn) btn.classList.add('active');
-    renderContextView(type);
-}
-
-async function renderContextView(type) {
-    const container = document.getElementById('contextContent');
-    let filtered = schedules;
-
-    if (type && type !== 'all') {
-        filtered = schedules.filter(s => (s.context_type || 'anywhere') === type);
     }
-
-    if (filtered.length === 0) {
-        container.innerHTML = '<div class="empty-hint">该情境下暂无日程</div>';
-        return;
-    }
-
-    // 如果是外出情境，显示路线建议
-    if (type === 'outdoor') {
-        const sorted = [...filtered].sort((a, b) => new Date(a.start) - new Date(b.start));
-        container.innerHTML = `
-        <div class="card route-card">
-            <div class="card-header"><h3>🗺️ 最优路线建议</h3></div>
-            <div class="card-body">
-                <div class="route-list">
-                    ${sorted.map((s, i) => {
-                        const ti = formatTimeDisplay(s.start, s.end);
-                        return `<div class="route-item">
-                            <div class="route-num">${i + 1}</div>
-                            <div class="route-connector"></div>
-                            <div class="route-info">
-                                <div class="route-title">${escapeHtml(s.title)}</div>
-                                <div class="route-time">${ti.date} ${ti.time}</div>
-                            </div>
-                        </div>`;
-                    }).join('')}
-                </div>
-            </div>
-        </div>`;
-    } else {
-        container.innerHTML = filtered.map(s => {
-            const ti = formatTimeDisplay(s.start, s.end);
-            const ctx = s.context_type || 'anywhere';
-            return `<div class="schedule-item" onclick="openDetailModal('${s.id}')" style="cursor:pointer">
-                <div class="schedule-priority ${s.priority}"></div>
-                <div class="schedule-info">
-                    <div class="schedule-title">${escapeHtml(s.title)}</div>
-                    <div class="schedule-desc">${ti.date} ${ti.time}</div>
-                </div>
-                <span class="context-icon-small">${CONTEXT_ICONS[ctx]}</span>
-            </div>`;
-        }).join('');
-    }
+    timeline.innerHTML = timelineHtml;
 }
 
 // ========================================
@@ -1691,67 +1826,51 @@ async function renderWeatherView() {
     document.getElementById('weatherCityInput').value = city;
 
     try {
-        const res = await fetch(`/api/weather?city=${encodeURIComponent(city)}`);
+        const res = await fetch(`/api/weather/forecast?city=${encodeURIComponent(city)}&days=3`);
         const data = await res.json();
 
-        const card = document.getElementById('weatherCard');
         if (data.error) {
-            card.querySelector('.card-body').innerHTML = `<div class="weather-error">${data.error}</div>`;
+            document.getElementById('weatherTodayCard').querySelector('.card-body').innerHTML = `<div class="weather-error">${data.error}</div>`;
             return;
         }
 
-        currentWeather = data;
-        card.querySelector('.card-body').innerHTML = `
-        <div class="weather-main ${data.isBadWeather ? 'bad' : 'good'}">
-            <div class="weather-icon-large">${data.icon}</div>
-            <div class="weather-info">
-                <div class="weather-temp">${data.temp}°C</div>
-                <div class="weather-desc">${data.condition}</div>
-                <div class="weather-city-name">${data.city || city}</div>
+        const forecast = data.forecast || [];
+        const today = forecast[0];
+
+        // 今日天气大卡片
+        const todayCard = document.getElementById('weatherTodayCard');
+        if (today) {
+            currentWeather = today;
+            todayCard.querySelector('.card-body').innerHTML = `
+            <div class="weather-main ${today.isBadWeather ? 'bad' : 'good'}">
+                <div class="weather-icon-large">${today.icon}</div>
+                <div class="weather-info">
+                    <div class="weather-temp">${today.temp}°C</div>
+                    <div class="weather-desc">${today.condition}</div>
+                    <div class="weather-city-name">${data.city || city}</div>
+                    <div class="weather-hilo">↑${today.maxTemp}° ↓${today.minTemp}°</div>
+                </div>
+                ${today.isBadWeather ? '<div class="weather-badge-bad">⚠️ 恶劣天气</div>' : '<div class="weather-badge-good">✅ 适合户外</div>'}
+            </div>`;
+        }
+
+        // 未来几天天气
+        const forecastContainer = document.getElementById('weatherForecast');
+        forecastContainer.innerHTML = forecast.map(day => `
+            <div class="card weather-forecast-card ${day.isBadWeather ? 'bad' : ''}">
+                <div class="card-body">
+                    <div class="wf-label">${day.label}</div>
+                    <div class="wf-icon">${day.icon}</div>
+                    <div class="wf-temp">${day.temp}°C</div>
+                    <div class="wf-desc">${day.condition}</div>
+                    <div class="wf-hilo">↑${day.maxTemp}° ↓${day.minTemp}°</div>
+                    ${day.isBadWeather ? '<div class="wf-warn">⚠️</div>' : ''}
+                </div>
             </div>
-            ${data.isBadWeather ? '<div class="weather-badge-bad">⚠️ 恶劣天气</div>' : '<div class="weather-badge-good">✅ 适合户外</div>'}
-        </div>`;
-
-        // 户外任务
-        const outdoorTasks = schedules.filter(s => !s.completed && (s.context_type || 'anywhere') === 'outdoor');
-        const outdoorContainer = document.getElementById('weatherOutdoorTasks');
-        if (outdoorTasks.length === 0) {
-            outdoorContainer.innerHTML = '<div class="empty-hint">没有户外任务</div>';
-        } else {
-            outdoorContainer.innerHTML = outdoorTasks.map(s => {
-                const ti = formatTimeDisplay(s.start, s.end);
-                return `<div class="schedule-item ${data.isBadWeather ? 'weather-warning-item' : ''}" onclick="openDetailModal('${s.id}')" style="cursor:pointer">
-                    <div class="schedule-priority ${s.priority}"></div>
-                    <div class="schedule-info">
-                        <div class="schedule-title">${escapeHtml(s.title)}</div>
-                        <div class="schedule-desc">${ti.date} ${ti.time}</div>
-                    </div>
-                    ${data.isBadWeather ? '<span class="energy-warning">⚠️</span>' : ''}
-                </div>`;
-            }).join('');
-        }
-
-        // 室内替代
-        const indoorContainer = document.getElementById('weatherIndoorTasks');
-        const indoorTasks = schedules.filter(s => !s.completed && ['computer', 'anywhere', 'phone'].includes(s.context_type || 'anywhere'));
-        if (indoorTasks.length === 0) {
-            indoorContainer.innerHTML = '<div class="empty-hint">没有可替代的室内任务</div>';
-        } else {
-            indoorContainer.innerHTML = indoorTasks.slice(0, 5).map(s => {
-                const ti = formatTimeDisplay(s.start, s.end);
-                return `<div class="schedule-item" onclick="openDetailModal('${s.id}')" style="cursor:pointer">
-                    <div class="schedule-priority ${s.priority}"></div>
-                    <div class="schedule-info">
-                        <div class="schedule-title">${escapeHtml(s.title)}</div>
-                        <div class="schedule-desc">${ti.date} ${ti.time}</div>
-                    </div>
-                    <span class="context-icon-small">${CONTEXT_ICONS[s.context_type || 'anywhere']}</span>
-                </div>`;
-            }).join('');
-        }
+        `).join('');
     } catch (err) {
         console.error('加载天气失败:', err);
-        document.getElementById('weatherCard').querySelector('.card-body').innerHTML = '<div class="weather-error">天气加载失败</div>';
+        document.getElementById('weatherTodayCard').querySelector('.card-body').innerHTML = '<div class="weather-error">天气加载失败</div>';
     }
 }
 

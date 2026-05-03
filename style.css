@@ -1038,6 +1038,15 @@ body {
     border-color: var(--orange);
     color: var(--orange);
 }
+.btn-danger {
+    background: rgba(239, 68, 68, 0.12);
+    color: #ef4444;
+    border: 1px solid rgba(239, 68, 68, 0.25);
+}
+.btn-danger:hover {
+    background: rgba(239, 68, 68, 0.25);
+    border-color: rgba(239, 68, 68, 0.4);
+}
 
 .btn-sm {
     padding: 8px 16px;
@@ -1221,6 +1230,13 @@ body {
 .schedule-item.completed {
     opacity: 0.45;
 }
+.schedule-item.cancelled {
+    opacity: 0.5;
+}
+.schedule-item.cancelled .schedule-title {
+    text-decoration: line-through;
+    color: var(--text-dim);
+}
 
 .schedule-priority {
     width: 4px;
@@ -1312,6 +1328,11 @@ body {
     background: rgba(52, 211, 153, 0.08);
     color: var(--green);
     border: 1px solid rgba(52, 211, 153, 0.15);
+}
+.cancelled-tag {
+    background: rgba(239, 68, 68, 0.08);
+    color: #ef4444;
+    border: 1px solid rgba(239, 68, 68, 0.15);
 }
 
 @keyframes urgentBlink {
@@ -1623,6 +1644,10 @@ body {
 
 .search-dropdown-item.completed {
     opacity: 0.5;
+}
+.search-dropdown-item.cancelled {
+    opacity: 0.5;
+    text-decoration: line-through;
 }
 
 .search-dropdown-info {
@@ -2803,13 +2828,13 @@ body {
     border: 1px solid transparent;
 }
 .category-badge.work { background: rgba(255,140,50,0.15); color: var(--orange); border-color: rgba(255,140,50,0.3); }
-.category-badge.personal { background: rgba(139,92,246,0.15); color: var(--purple); border-color: rgba(139,92,246,0.3); }
-.category-badge.family { background: rgba(52,211,153,0.15); color: var(--green); border-color: rgba(52,211,153,0.3); }
-.category-badge.health { background: rgba(59,130,246,0.15); color: var(--blue); border-color: rgba(59,130,246,0.3); }
+.category-badge.eating { background: rgba(52,211,153,0.15); color: var(--green); border-color: rgba(52,211,153,0.3); }
+.category-badge.exercise { background: rgba(59,130,246,0.15); color: var(--blue); border-color: rgba(59,130,246,0.3); }
+.category-badge.study { background: rgba(139,92,246,0.15); color: var(--purple); border-color: rgba(139,92,246,0.3); }
 .priority-option input:checked + .category-badge.work { background: var(--orange); color: #000; }
-.priority-option input:checked + .category-badge.personal { background: var(--purple); color: #fff; }
-.priority-option input:checked + .category-badge.family { background: var(--green); color: #000; }
-.priority-option input:checked + .category-badge.health { background: var(--blue); color: #fff; }
+.priority-option input:checked + .category-badge.eating { background: var(--green); color: #000; }
+.priority-option input:checked + .category-badge.exercise { background: var(--blue); color: #fff; }
+.priority-option input:checked + .category-badge.study { background: var(--purple); color: #fff; }
 
 /* ========================================
    情境徽章
@@ -2837,23 +2862,17 @@ body {
 /* ========================================
    意图视图
    ======================================== */
-.intent-bar {
+.intent-pie-row {
     display: flex;
-    height: 32px;
-    border-radius: 16px;
-    overflow: hidden;
-    background: rgba(255,255,255,0.05);
-    margin-bottom: 16px;
+    align-items: center;
+    gap: 24px;
 }
-.intent-bar-segment {
-    transition: width 0.5s ease;
-    min-width: 4px;
+.intent-pie svg { flex-shrink: 0; }
+.intent-pie-empty {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 13px;
 }
-.intent-bar-segment.work { background: var(--orange); }
-.intent-bar-segment.personal { background: var(--purple); }
-.intent-bar-segment.family { background: var(--green); }
-.intent-bar-segment.health { background: var(--blue); }
-.intent-bar-segment:hover { filter: brightness(1.2); }
 .intent-bar-empty {
     display: flex;
     align-items: center;
@@ -2864,8 +2883,8 @@ body {
 }
 .intent-legend {
     display: flex;
-    gap: 20px;
-    flex-wrap: wrap;
+    flex-direction: column;
+    gap: 8px;
 }
 .intent-legend-item {
     display: flex;
@@ -2878,7 +2897,18 @@ body {
     width: 10px;
     height: 10px;
     border-radius: 50%;
+    flex-shrink: 0;
 }
+.intent-remove-btn {
+    margin-left: auto;
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 0 4px;
+}
+.intent-remove-btn:hover { color: var(--red); }
 .intent-categories {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
@@ -2889,6 +2919,19 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
+}
+.intent-category-card .card-body {
+    max-height: 320px;
+    overflow-y: auto;
+    -ms-overflow-style: none;
+    scrollbar-width: thin;
+}
+.intent-category-card .card-body::-webkit-scrollbar {
+    width: 4px;
+}
+.intent-category-card .card-body::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,0.15);
+    border-radius: 4px;
 }
 .intent-cat-dot {
     display: inline-block;
@@ -2901,12 +2944,6 @@ body {
     font-size: 13px;
     color: var(--text-secondary);
 }
-.intent-more {
-    text-align: center;
-    padding: 8px;
-    color: var(--text-dim);
-    font-size: 12px;
-}
 .empty-hint {
     text-align: center;
     padding: 24px;
@@ -2917,131 +2954,168 @@ body {
 /* ========================================
    能量视图
    ======================================== */
-.chronotype-setting {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-.chronotype-toggle {
-    display: flex;
-    gap: 8px;
-}
-.chronotype-btn {
-    padding: 8px 16px;
-    border-radius: 20px;
-    border: 1px solid var(--border);
-    background: transparent;
-    color: var(--text-secondary);
-    cursor: pointer;
-    transition: all 0.3s;
-    font-size: 13px;
-}
-.chronotype-btn:hover { border-color: var(--border-hover); }
-.chronotype-btn.active {
-    background: rgba(255,140,50,0.15);
-    border-color: var(--orange);
-    color: var(--orange);
-}
-.energy-timeline {
-    display: grid;
-    grid-template-columns: repeat(24, 1fr);
-    gap: 2px;
-    margin-bottom: 8px;
-}
-.energy-cell {
-    aspect-ratio: 1;
-    border-radius: 4px;
+.energy-date-nav {
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 10px;
-    color: var(--text-dim);
-    transition: all 0.3s;
-    position: relative;
+    gap: 12px;
+    margin-bottom: 16px;
 }
-.energy-cell.high { background: rgba(255,140,50,0.3); color: var(--orange); }
-.energy-cell.medium { background: rgba(255,211,153,0.15); color: var(--text-secondary); }
-.energy-cell.low { background: rgba(255,255,255,0.03); }
-.energy-cell.current { outline: 2px solid var(--orange); outline-offset: -1px; }
-.energy-cell-hour { font-size: 9px; }
-.energy-group-card .card-header h3 {
+.energy-date-label {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    min-width: 160px;
+    text-align: center;
+}
+.energy-main-row {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: 16px;
+}
+.energy-pie-card .card-body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+}
+.energy-pie svg { flex-shrink: 0; }
+.energy-pie-legend {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 100%;
+}
+.energy-pie-detail {
+    margin-top: 8px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    max-height: 200px;
+    overflow-y: auto;
+    -ms-overflow-style: none;
+    scrollbar-width: thin;
+    display: none;
+}
+.energy-pie-detail.active {
+    display: block;
+}
+.energy-pie-detail .epd-title {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 6px;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
 }
-.energy-dot {
+.energy-pie-detail .epd-title .epd-dot {
     width: 8px;
     height: 8px;
     border-radius: 50%;
+    display: inline-block;
 }
-.energy-dot.high { background: var(--red); }
-.energy-dot.medium { background: var(--orange); }
-.energy-dot.low { background: var(--blue); }
-.energy-mismatch { border-left: 3px solid var(--red) !important; }
-.energy-warning {
-    font-size: 16px;
+.energy-pie-detail .epd-item {
+    font-size: 12px;
+    padding: 3px 0;
+    display: flex;
+    justify-content: space-between;
+    color: var(--text-secondary);
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.energy-pie-detail .epd-item:last-child {
+    border-bottom: none;
+}
+.energy-pie-detail .epd-item .epd-time {
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 11px;
     flex-shrink: 0;
+    margin-left: 8px;
 }
-
-/* ========================================
-   情境视图
-   ======================================== */
-.context-icon-small {
-    font-size: 18px;
-    flex-shrink: 0;
+.energy-pie svg path {
+    cursor: pointer;
+    transition: opacity 0.15s, transform 0.15s;
+    transform-origin: 100px 100px;
 }
-.route-card .card-header h3 {
-    margin: 0;
+.energy-pie svg path:hover {
+    opacity: 1 !important;
+    transform: scale(1.06);
 }
-.route-list {
-    position: relative;
-    padding-left: 24px;
+.energy-pie svg path.dimmed {
+    opacity: 0.3 !important;
 }
-.route-item {
+.energy-timeline-v {
+    max-height: 500px;
+    overflow-y: auto;
+    -ms-overflow-style: none;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,140,50,0.2) transparent;
+}
+.energy-timeline-v::-webkit-scrollbar { width: 4px; }
+.energy-timeline-v::-webkit-scrollbar-thumb { background: rgba(255,140,50,0.2); border-radius: 2px; }
+.energy-tl-row {
     display: flex;
     align-items: flex-start;
     gap: 12px;
-    position: relative;
-    padding-bottom: 16px;
+    padding: 4px 0;
+    min-height: 32px;
 }
-.route-item:last-child { padding-bottom: 0; }
-.route-num {
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    background: var(--orange);
-    color: #000;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+.energy-tl-row.current { background: rgba(255,140,50,0.05); border-radius: 6px; }
+.energy-tl-hour {
+    width: 44px;
     font-size: 12px;
-    font-weight: 600;
+    font-family: var(--font-mono);
+    color: var(--text-primary);
+    text-align: right;
     flex-shrink: 0;
-    z-index: 1;
+    padding-top: 2px;
 }
-.route-connector {
-    position: absolute;
-    left: 11px;
-    top: 24px;
-    bottom: 0;
-    width: 2px;
-    background: rgba(255,140,50,0.3);
+.energy-tl-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: rgba(255,140,50,0.2);
+    flex-shrink: 0;
+    margin-top: 4px;
 }
-.route-item:last-child .route-connector { display: none; }
-.route-info { flex: 1; }
-.route-title { font-size: 14px; color: var(--text-primary); }
-.route-time { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+.energy-tl-dot.current { background: var(--orange); box-shadow: 0 0 8px rgba(255,140,50,0.5); }
+.energy-tl-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.energy-tl-block {
+    padding: 6px 10px;
+    border-left: 3px solid var(--orange);
+    background: rgba(255,255,255,0.03);
+    border-radius: 0 6px 6px 0;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+.energy-tl-block:hover { background: rgba(255,140,50,0.08); }
+.energy-tl-block-time {
+    font-size: 11px;
+    font-family: var(--font-mono);
+    color: var(--text-dim);
+    margin-right: 8px;
+}
+.energy-tl-block-title {
+    font-size: 13px;
+    color: var(--text-primary);
+}
 
 /* ========================================
    天气视图
    ======================================== */
-.weather-top {
+.weather-top-row {
     display: flex;
     gap: 16px;
     margin-bottom: 16px;
 }
-.weather-top .weather-card { flex: 2; }
-.weather-top .weather-city-card { flex: 1; }
+.weather-today-card { flex: 2; }
+.weather-city-card { flex: 1; }
 .weather-main {
     display: flex;
     align-items: center;
@@ -3050,10 +3124,11 @@ body {
 }
 .weather-main.bad { border-left: 3px solid var(--red); padding-left: 16px; }
 .weather-main.good { border-left: 3px solid var(--green); padding-left: 16px; }
-.weather-icon-large { font-size: 48px; }
-.weather-temp { font-size: 32px; font-weight: 700; color: var(--orange); }
+.weather-icon-large { font-size: 56px; }
+.weather-temp { font-size: 36px; font-weight: 700; color: var(--orange); }
 .weather-desc { font-size: 14px; color: var(--text-secondary); margin-top: 4px; }
 .weather-city-name { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+.weather-hilo { font-size: 13px; color: var(--text-secondary); margin-top: 4px; }
 .weather-badge-bad {
     padding: 6px 12px;
     border-radius: 20px;
@@ -3077,29 +3152,35 @@ body {
     padding: 24px;
     color: var(--text-dim);
 }
-.weather-sections {
+.weather-forecast {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     gap: 16px;
 }
-.weather-warning-item { border-left: 3px solid var(--red) !important; }
+.weather-forecast-card { text-align: center; }
+.weather-forecast-card.bad { border: 1px solid rgba(248,113,113,0.3); }
+.wf-label { font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; }
+.wf-icon { font-size: 36px; margin-bottom: 4px; }
+.wf-temp { font-size: 22px; font-weight: 700; color: var(--orange); }
+.wf-desc { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
+.wf-hilo { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+.wf-warn { font-size: 16px; margin-top: 4px; }
 
 /* ========================================
    响应式 - 新视图适配
    ======================================== */
 @media (max-width: 1024px) {
     .intent-categories { grid-template-columns: 1fr; }
-    .weather-sections { grid-template-columns: 1fr; }
-    .weather-top { flex-direction: column; }
+    .energy-main-row { grid-template-columns: 1fr; }
+    .weather-top-row { flex-direction: column; }
+    .weather-forecast { grid-template-columns: 1fr; }
 }
 @media (max-width: 768px) {
-    .energy-timeline { grid-template-columns: repeat(12, 1fr); }
-    .chronotype-setting { flex-direction: column; align-items: flex-start; }
+    .intent-pie-row { flex-direction: column; }
     .weather-main { flex-wrap: wrap; }
 }
 @media (max-width: 380px) {
-    .energy-timeline { grid-template-columns: repeat(8, 1fr); }
-    .intent-bar { height: 24px; }
+    .intent-pie-row { flex-direction: column; }
 }
 
 /* ========================================
