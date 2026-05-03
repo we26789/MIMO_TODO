@@ -88,6 +88,13 @@
                     </svg>
                     <span>意图视图</span>
                 </a>
+                <a class="nav-item" data-page="goals" onclick="switchPage('goals')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <circle cx="12" cy="12" r="10"/>
+                        <path d="M12 6v6l4 2"/>
+                    </svg>
+                    <span>查看目标</span>
+                </a>
                 <a class="nav-item" data-page="energy" onclick="switchPage('energy')">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                         <polygon points="13,2 3,14 12,14 11,22 21,10 12,10"/>
@@ -347,6 +354,44 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- 目标概览 -->
+                    <div class="card" style="margin-top:16px">
+                        <div class="card-header">
+                            <h3>目标概览</h3>
+                            <button class="btn-text" onclick="toggleGoalPanel()">查看全部 →</button>
+                        </div>
+                        <div class="card-body" id="dashboardGoalList">
+                            <div class="empty-state">
+                                <p>暂无进行中的目标</p>
+                                <button class="btn btn-primary btn-sm" onclick="showCreateGoalModal()">创建目标</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 目标查看页面 -->
+                <div class="page" id="page-goals">
+                    <div class="goals-page-layout">
+                        <!-- 左侧：目标列表 -->
+                        <div class="goals-list-panel">
+                            <div class="goals-panel-header">
+                                <h3>我的目标</h3>
+                                <button class="btn btn-primary btn-sm" onclick="showCreateGoalModal()">+ 新建</button>
+                            </div>
+                            <div id="goalsPageList" class="goals-page-list"></div>
+                            <div id="emptyPageGoals" class="empty-state">
+                                <p>还没有目标</p>
+                                <button class="btn btn-primary btn-sm" onclick="showCreateGoalModal()">创建第一个目标</button>
+                            </div>
+                        </div>
+                        <!-- 右侧：目标详情/新建 -->
+                        <div class="goal-detail-panel" id="goalDetailPanel">
+                            <div class="goal-detail-empty">
+                                <p>选择一个目标查看详情</p>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- 新建日程页面 -->
@@ -441,29 +486,18 @@
                                                 </label>
                                             </div>
                                         </div>
-                                        <div class="form-group">
-                                            <label class="form-label">情境</label>
-                                            <div class="priority-selector">
-                                                <label class="priority-option">
-                                                    <input type="radio" name="context_type" value="computer" checked>
-                                                    <span class="context-badge computer">电脑前</span>
-                                                </label>
-                                                <label class="priority-option">
-                                                    <input type="radio" name="context_type" value="phone">
-                                                    <span class="context-badge phone">打电话</span>
-                                                </label>
-                                                <label class="priority-option">
-                                                    <input type="radio" name="context_type" value="outdoor">
-                                                    <span class="context-badge outdoor">外出</span>
-                                                </label>
-                                                <label class="priority-option">
-                                                    <input type="radio" name="context_type" value="meeting">
-                                                    <span class="context-badge meeting">会议</span>
-                                                </label>
-                                                <label class="priority-option">
-                                                    <input type="radio" name="context_type" value="anywhere">
-                                                    <span class="context-badge anywhere">无特定</span>
-                                                </label>
+                                        </div>
+                                    </div>
+                                    <div class="form-divider"></div>
+                                    <div id="flexibleFields" style="display:none">
+                                        <div class="form-row">
+                                            <div class="form-group">
+                                                <label class="form-label">截止日期</label>
+                                                <input type="date" class="form-input" id="flexibleDeadline">
+                                            </div>
+                                            <div class="form-group">
+                                                <label class="form-label">预估时长（分钟）</label>
+                                                <input type="number" class="form-input" id="estimatedMinutes" placeholder="如：60" min="0">
                                             </div>
                                         </div>
                                     </div>
@@ -644,6 +678,7 @@
                     <div class="weather-forecast" id="weatherForecast"></div>
                 </div>
 
+
                 <!-- 周报页面 -->
                 <div class="page" id="page-weekly">
                     <div class="weekly-nav">
@@ -694,6 +729,23 @@
                     <div class="card weekly-chart-card">
                         <div class="card-header"><h3>智能建议</h3></div>
                         <div class="card-body" id="weeklyAdvice"></div>
+                    </div>
+                    <div class="weekly-review-section">
+                        <div class="weekly-review-header">
+                            <h3>AI 复盘教练</h3>
+                            <button class="btn btn-primary btn-sm" onclick="startReviewChat()">开始复盘对话</button>
+                        </div>
+                        <div id="reviewChatArea" style="display:none">
+                            <div id="reviewChatBody" class="ai-chat-body" style="height:300px"></div>
+                            <div class="ai-chat-footer">
+                                <div class="ai-input-wrapper">
+                                    <textarea class="form-input ai-input" id="reviewInput" rows="1" placeholder="和教练聊聊这周的情况..." oninput="autoResizeTextarea(this)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendReviewMessage()}"></textarea>
+                                    <button class="ai-send-btn" onclick="sendReviewMessage()">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22,2 15,22 11,13 2,9"/></svg>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -784,32 +836,9 @@
                                 </label>
                             </div>
                         </div>
-                        <div class="form-group">
-                            <label class="form-label">情境</label>
-                            <div class="priority-selector">
-                                <label class="priority-option">
-                                    <input type="radio" name="editContext" value="computer">
-                                    <span class="context-badge computer">电脑前</span>
-                                </label>
-                                <label class="priority-option">
-                                    <input type="radio" name="editContext" value="phone">
-                                    <span class="context-badge phone">打电话</span>
-                                </label>
-                                <label class="priority-option">
-                                    <input type="radio" name="editContext" value="outdoor">
-                                    <span class="context-badge outdoor">外出</span>
-                                </label>
-                                <label class="priority-option">
-                                    <input type="radio" name="editContext" value="meeting">
-                                    <span class="context-badge meeting">会议</span>
-                                </label>
-                                <label class="priority-option">
-                                    <input type="radio" name="editContext" value="anywhere">
-                                    <span class="context-badge anywhere">无特定</span>
-                                </label>
-                            </div>
                         </div>
                     </div>
+                    <div class="form-divider"></div>
                 </form>
             </div>
             <div class="modal-footer">
@@ -948,6 +977,191 @@
 
     <!-- 日程提醒弹窗容器 -->
     <div class="notification-container" id="notificationContainer"></div>
+
+    <!-- 新建目标模态框 -->
+    <div class="modal-overlay" id="goalModal" style="display:none" onclick="if(event.target===this)closeGoalModal()">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="goalModalTitle">新建目标</h3>
+                <button class="modal-close" onclick="closeGoalModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <!-- Tab 切换 -->
+                <div class="create-tabs" id="goalTabs">
+                    <button class="tab-btn active" id="goalTabManual" onclick="switchGoalCreateTab('manual')">手动创建</button>
+                    <button class="tab-btn" id="goalTabSmart" onclick="switchGoalCreateTab('smart')">智能创建</button>
+                    <div class="tab-indicator" id="goalTabIndicator"></div>
+                </div>
+
+                <!-- 手动创建 Tab -->
+                <div class="tab-content active" id="goalContentManual">
+                    <div class="form-group">
+                        <label class="form-label">目标名称 *</label>
+                        <input type="text" class="form-input" id="goalTitle" placeholder="如：减重5公斤">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">目标描述</label>
+                        <textarea class="form-input" id="goalDescription" rows="2" placeholder="详细描述你的目标"></textarea>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">目标类型</label>
+                            <select class="form-input" id="goalType">
+                                <option value="yearly">年目标</option>
+                                <option value="quarterly">季度目标</option>
+                                <option value="monthly" selected>月目标</option>
+                                <option value="weekly">周目标</option>
+                                <option value="daily">日目标</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">关联分类</label>
+                            <select class="form-input" id="goalCategory">
+                                <option value="">不限</option>
+                                <option value="work">工作</option>
+                                <option value="eating">吃饭</option>
+                                <option value="exercise">运动</option>
+                                <option value="study">学习</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">目标时长（分钟）</label>
+                        <input type="number" class="form-input" id="goalMinutes" placeholder="如：300" min="0">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <div class="form-checkbox-row">
+                                <label class="switch">
+                                    <input type="checkbox" id="goalFlexible">
+                                    <span class="switch-slider"></span>
+                                </label>
+                                <span class="form-label" style="margin-bottom:0">弹性调度</span>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">可延期天数</label>
+                            <input type="number" class="form-input" id="goalFlexibleDays" placeholder="如：3" min="0" max="30">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <div class="form-checkbox-row">
+                                <label class="switch">
+                                    <input type="checkbox" id="goalCheckinRequired" checked>
+                                    <span class="switch-slider"></span>
+                                </label>
+                                <span class="form-label" style="margin-bottom:0">开启打卡</span>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <div class="form-checkbox-row">
+                                <label class="switch">
+                                    <input type="checkbox" id="goalCheckinRemind" checked>
+                                    <span class="switch-slider"></span>
+                                </label>
+                                <span class="form-label" style="margin-bottom:0">打卡提醒</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">开始日期 *</label>
+                            <input type="date" class="form-input" id="goalStartDate">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">结束日期 *</label>
+                            <input type="date" class="form-input" id="goalEndDate">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 智能创建 Tab -->
+                <div class="tab-content" id="goalContentSmart">
+                    <div class="ai-chat-card">
+                        <div class="ai-chat-body" id="goalAiChatBody">
+                            <div class="ai-message assistant">
+                                <div class="ai-message-content">你好！告诉我你想达成什么目标，我来帮你创建。例如：</div>
+                            </div>
+                            <div class="ai-examples">
+                                <button class="ai-example-btn" onclick="sendGoalAiExample('我想每周运动3次，每次1小时')">每周运动3次</button>
+                                <button class="ai-example-btn" onclick="sendGoalAiExample('这个月要读完2本书')">每月读2本书</button>
+                                <button class="ai-example-btn" onclick="sendGoalAiExample('每天学英语30分钟')">每天学英语</button>
+                            </div>
+                        </div>
+                        <div class="ai-chat-footer">
+                            <div class="ai-input-wrapper">
+                                <textarea class="form-input ai-input" id="goalAiInput" rows="1" placeholder="描述你的目标..." oninput="autoResizeTextarea(this)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendGoalAiMessage()}"></textarea>
+                                <button class="ai-send-btn" onclick="sendGoalAiMessage()">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22,2 15,22 11,13 2,9"/></svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" id="goalModalFooter">
+                <button class="btn btn-ghost" onclick="closeGoalModal()">取消</button>
+                <button class="btn btn-primary" onclick="saveGoal()" id="goalSaveBtn">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 绑定日程到目标模态框 -->
+    <div class="modal-overlay" id="bindGoalModal" style="display:none" onclick="if(event.target===this)closeBindGoalModal()">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>绑定日程到目标</h3>
+                <button class="modal-close" onclick="closeBindGoalModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <div id="bindGoalScheduleList" class="bind-schedule-list"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" onclick="closeBindGoalModal()">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 目标成果模态框 -->
+    <div class="modal-overlay" id="goalAchievementModal" style="display:none" onclick="if(event.target===this)closeGoalAchievementModal()">
+        <div class="modal-content" style="max-width:400px">
+            <div class="modal-header">
+                <h3>添加成果</h3>
+                <button class="modal-close" onclick="closeGoalAchievementModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">成果内容</label>
+                    <textarea class="form-input" id="goalAchievementInput" rows="4" placeholder="记录你的成果..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" onclick="closeGoalAchievementModal()">取消</button>
+                <button class="btn btn-primary" onclick="saveGoalAchievement()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 记录情绪模态框 -->
+    <div class="modal-overlay" id="emotionModal" style="display:none" onclick="if(event.target===this)closeEmotionModal()">
+        <div class="modal-content" style="max-width:360px">
+            <div class="modal-header">
+                <h3>记录情绪</h3>
+                <button class="modal-close" onclick="closeEmotionModal()">×</button>
+            </div>
+            <div class="modal-body" style="text-align:center">
+                <p style="margin-bottom:16px;color:var(--text-secondary)">完成这个日程时你感觉如何？</p>
+                <div class="emotion-picker">
+                    <button class="emotion-btn" onclick="selectEmotion('great')" title="很棒">😊</button>
+                    <button class="emotion-btn" onclick="selectEmotion('good')" title="不错">🙂</button>
+                    <button class="emotion-btn" onclick="selectEmotion('neutral')" title="一般">😐</button>
+                    <button class="emotion-btn" onclick="selectEmotion('tired')" title="疲惫">😔</button>
+                    <button class="emotion-btn" onclick="selectEmotion('stressed')" title="压力大">😰</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <script src="app.js"></script>
 </body>

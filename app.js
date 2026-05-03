@@ -170,6 +170,8 @@ async function loadSchedules() {
             start: s.start || s.start_time,
             end: s.end || s.end_time,
             completed: !!s.completed,
+            emotion: s.emotion || null,
+            estimated_minutes: s.estimated_minutes || null,
         }));
     } catch (err) {
         console.error('加载日程失败:', err);
@@ -189,21 +191,28 @@ function updateClock() {
 
 // 页面切换
 function switchPage(page) {
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    document.getElementById(`page-${page}`).classList.add('active');
-    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-    document.querySelector(`[data-page="${page}"]`).classList.add('active');
-    const titles = { dashboard: '仪表盘', create: '新建日程', schedules: '查看日程', intent: '意图视图', energy: '能量视图', weather: '天气视图', weekly: '周报' };
-    const breadcrumbs = { dashboard: '首页 / 仪表盘', create: '首页 / 新建日程', schedules: '首页 / 查看日程', intent: '首页 / 意图视图', energy: '首页 / 能量视图', weather: '首页 / 天气视图', weekly: '首页 / 周报' };
-    document.getElementById('pageTitle').textContent = titles[page];
-    document.getElementById('breadcrumb').textContent = breadcrumbs[page];
-    if (page === 'dashboard') refreshDashboard();
-    if (page === 'schedules') renderSchedules();
-    if (page === 'intent') renderIntentView();
-    if (page === 'energy') renderEnergyView();
-    if (page === 'weather') renderWeatherView();
-    if (page === 'weekly') renderWeeklyView();
-    closeMobileMenu();
+    try {
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        const pageEl = document.getElementById(`page-${page}`);
+        if (pageEl) pageEl.classList.add('active');
+        document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+        const navEl = document.querySelector(`[data-page="${page}"]`);
+        if (navEl) navEl.classList.add('active');
+        const titles = { dashboard: '仪表盘', create: '新建日程', schedules: '查看日程', intent: '意图视图', goals: '目标管理', energy: '能量视图', weather: '天气视图', weekly: '周报' };
+        const breadcrumbs = { dashboard: '首页 / 仪表盘', create: '首页 / 新建日程', schedules: '首页 / 查看日程', intent: '首页 / 意图视图', goals: '首页 / 目标管理', energy: '首页 / 能量视图', weather: '首页 / 天气视图', weekly: '首页 / 周报' };
+        document.getElementById('pageTitle').textContent = titles[page] || page;
+        document.getElementById('breadcrumb').textContent = breadcrumbs[page] || '';
+        if (page === 'dashboard') refreshDashboard();
+        if (page === 'schedules') renderSchedules();
+        if (page === 'intent') renderIntentView();
+        if (page === 'goals') renderGoalsPage();
+        if (page === 'energy') renderEnergyView();
+        if (page === 'weather') renderWeatherView();
+        if (page === 'weekly') renderWeeklyView();
+        closeMobileMenu();
+    } catch (err) {
+        console.error('页面切换失败:', err);
+    }
 }
 
 // 移动端菜单
@@ -318,6 +327,9 @@ function refreshDashboard() {
             </div>`;
         }).join('');
     }
+
+    // 加载目标概览
+    renderDashboardGoals();
 }
 
 // 手动创建日程
@@ -330,13 +342,12 @@ async function handleManualSubmit(e) {
     const priority = document.querySelector('input[name="priority"]:checked').value;
     const urgency = document.querySelector('input[name="urgency"]:checked').value;
     const category = document.querySelector('input[name="category"]:checked').value;
-    const context_type = document.querySelector('input[name="context_type"]:checked').value;
 
     if (!title || !start || !end) { showToast('请填写完整信息', 'error'); return false; }
     if (new Date(end) <= new Date(start)) { showToast('结束时间必须晚于开始时间', 'error'); return false; }
 
     const id = Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
-    await apiPost({ id, title, description: desc, start, end, priority, urgency, category, context_type });
+    await apiPost({ id, title, description: desc, start, end, priority, urgency, category });
 
     document.getElementById('manualForm').reset();
     setDefaultFormValues();
@@ -413,6 +424,7 @@ function renderSchedules() {
                 <div class="schedule-meta">
                     <span class="meta-tag priority-tag-${s.priority}">${s.priority === 'high' ? '高优先级' : s.priority === 'medium' ? '中优先级' : '低优先级'}</span>
                     <span class="meta-tag urgency-tag-${urgencyClass}">${getUrgencyLabel(s.urgency)}</span>
+                    ${s.emotion ? `<span class="meta-tag emotion-tag">${{great:'😊很棒',good:'🙂不错',neutral:'😐一般',tired:'😔疲惫',stressed:'😰压力大'}[s.emotion] || ''}</span>` : ''}
                     ${isCancelled ? `<span class="meta-tag cancelled-tag">已取消</span>` : ''}
                     ${completedTime ? `<span class="meta-tag completed-tag">${completedTime}</span>` : ''}
                 </div>
@@ -443,10 +455,39 @@ function renderSchedules() {
 }
 
 // 切换完成状态
+let pendingEmotionScheduleId = null;
+
 async function toggleComplete(id) {
+    const s = schedules.find(x => x.id === id);
+    const wasCompleted = s ? s.completed : false;
     await apiToggle(id);
     await loadSchedules();
-    showToast('状态已更新');
+    if (!wasCompleted) {
+        pendingEmotionScheduleId = id;
+        document.getElementById('emotionModal').style.display = '';
+    } else {
+        showToast('状态已更新');
+    }
+}
+
+function closeEmotionModal() {
+    document.getElementById('emotionModal').style.display = 'none';
+    pendingEmotionScheduleId = null;
+}
+
+async function selectEmotion(emotion) {
+    if (!pendingEmotionScheduleId) return;
+    try {
+        await fetch(`${API}/${pendingEmotionScheduleId}/emotion`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ emotion })
+        });
+        showToast('情绪已记录');
+    } catch (err) {
+        console.error('记录情绪失败:', err);
+    }
+    closeEmotionModal();
 }
 
 // 删除日程
@@ -472,8 +513,6 @@ function openEditModal(id) {
     if (ur) ur.checked = true;
     const cat = document.querySelector(`input[name="editCategory"][value="${s.category || 'work'}"]`);
     if (cat) cat.checked = true;
-    const ctx = document.querySelector(`input[name="editContext"][value="${s.context_type || 'anywhere'}"]`);
-    if (ctx) ctx.checked = true;
     document.getElementById('editModal').classList.add('active');
 }
 
@@ -492,13 +531,12 @@ async function handleEditSubmit(e) {
     const priority = document.querySelector('input[name="editPriority"]:checked').value;
     const urgency = document.querySelector('input[name="editUrgency"]:checked').value;
     const category = document.querySelector('input[name="editCategory"]:checked').value;
-    const context_type = document.querySelector('input[name="editContext"]:checked').value;
 
     if (!title || !start || !end) { showToast('请填写完整信息', 'error'); return false; }
     if (new Date(end) <= new Date(start)) { showToast('结束时间必须晚于开始时间', 'error'); return false; }
 
     const s = schedules.find(x => x.id === id);
-    await apiPut(id, { title, description: desc, start, end, priority, urgency, category, context_type, completed: s ? s.completed : false });
+    await apiPut(id, { title, description: desc, start, end, priority, urgency, category, completed: s ? s.completed : false });
     closeEditModal();
     await loadSchedules();
     showToast('日程已更新');
@@ -535,40 +573,95 @@ function handleSearchInput() {
 
 async function fuzzySearch(q) {
     try {
-        const res = await fetch(`${API}/search?q=${encodeURIComponent(q)}`);
-        const results = await res.json();
-        showSearchDropdown(results);
+        const [schedulesRes, goalsRes] = await Promise.all([
+            fetch(`${API}/search?q=${encodeURIComponent(q)}`),
+            fetch('/api/goals')
+        ]);
+        const scheduleResults = await schedulesRes.json();
+        const goals = await goalsRes.json();
+
+        // 搜索目标
+        const goalResults = goals.filter(g =>
+            g.title.toLowerCase().includes(q.toLowerCase()) ||
+            (g.description && g.description.toLowerCase().includes(q.toLowerCase()))
+        ).slice(0, 3).map(g => ({
+            id: g.id,
+            title: g.title,
+            type: 'goal',
+            status: g.status,
+            goalType: g.type
+        }));
+
+        showSearchDropdown(scheduleResults, goalResults);
     } catch (err) {
         console.error('搜索失败:', err);
         hideSearchDropdown();
     }
 }
 
-function showSearchDropdown(results) {
+function showSearchDropdown(scheduleResults, goalResults = []) {
     const dropdown = document.getElementById('searchDropdown');
-    if (!results.length) {
-        dropdown.innerHTML = '<div class="search-dropdown-empty">未找到匹配日程</div>';
+    const hasResults = scheduleResults.length > 0 || goalResults.length > 0;
+
+    if (!hasResults) {
+        dropdown.innerHTML = '<div class="search-dropdown-empty">未找到匹配结果</div>';
         dropdown.classList.add('active');
         return;
     }
-    dropdown.innerHTML = results.slice(0, 8).map(s => {
-        const timeInfo = formatTimeDisplay(s.start, s.end);
-        const score = s.score || 0;
-        return `
-        <div class="search-dropdown-item ${s.completed ? 'completed' : ''} ${s.cancel_reason ? 'cancelled' : ''}" onclick="openDetailFromSearch('${s.id}')">
+
+    let html = '';
+
+    // 目标结果
+    if (goalResults.length > 0) {
+        html += '<div class="search-dropdown-section">目标</div>';
+        html += goalResults.map(g => `
+        <div class="search-dropdown-item goal-item" onclick="openGoalFromSearch('${g.id}')">
             <div class="search-dropdown-info">
-                <div class="search-dropdown-title">${escapeHtml(s.title)}</div>
+                <div class="search-dropdown-title">${escapeHtml(g.title)}</div>
                 <div class="search-dropdown-meta">
-                    <span class="meta-tag priority-tag-${s.priority}">${s.priority === 'high' ? '高' : s.priority === 'medium' ? '中' : '低'}</span>
-                    <span class="search-dropdown-time">${timeInfo.date} ${timeInfo.time}</span>
+                    <span class="meta-tag goal-tag">${g.goalType === 'yearly' ? '年' : g.goalType === 'quarterly' ? '季' : g.goalType === 'monthly' ? '月' : g.goalType === 'weekly' ? '周' : '日'}</span>
+                    <span class="search-dropdown-status ${g.status}">${g.status === 'active' ? '进行中' : g.status === 'completed' ? '已完成' : '已取消'}</span>
                 </div>
             </div>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="16" height="16">
                 <polyline points="9,18 15,12 9,6"/>
             </svg>
-        </div>`;
-    }).join('');
+        </div>`).join('');
+    }
+
+    // 日程结果
+    if (scheduleResults.length > 0) {
+        html += '<div class="search-dropdown-section">日程</div>';
+        html += scheduleResults.slice(0, 6).map(s => {
+            const timeInfo = formatTimeDisplay(s.start, s.end);
+            return `
+            <div class="search-dropdown-item ${s.completed ? 'completed' : ''} ${s.cancel_reason ? 'cancelled' : ''}" onclick="openDetailFromSearch('${s.id}')">
+                <div class="search-dropdown-info">
+                    <div class="search-dropdown-title">${escapeHtml(s.title)}</div>
+                    <div class="search-dropdown-meta">
+                        <span class="meta-tag priority-tag-${s.priority}">${s.priority === 'high' ? '高' : s.priority === 'medium' ? '中' : '低'}</span>
+                        <span class="search-dropdown-time">${timeInfo.date} ${timeInfo.time}</span>
+                    </div>
+                </div>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="16" height="16">
+                    <polyline points="9,18 15,12 9,6"/>
+                </svg>
+            </div>`;
+        }).join('');
+    }
+
+    dropdown.innerHTML = html;
     dropdown.classList.add('active');
+}
+
+function openGoalFromSearch(goalId) {
+    hideSearchDropdown();
+    document.getElementById('searchInput').value = '';
+    switchPage('goals');
+    setTimeout(() => {
+        selectedGoalId = goalId;
+        renderGoalsPage();
+    }, 100);
 }
 
 function hideSearchDropdown() {
@@ -1895,6 +1988,8 @@ async function renderWeatherView() {
         console.error('加载天气失败:', err);
         document.getElementById('weatherTodayCard').querySelector('.card-body').innerHTML = '<div class="weather-error">天气加载失败</div>';
     }
+    // 天气页面渲染后重新检查天气告警
+    checkWeatherAlerts();
 }
 
 function changeWeatherCity() {
@@ -2346,3 +2441,956 @@ document.addEventListener('keydown', (e) => {
         }
     }
 });
+
+// ========================================
+// 目标管理
+// ========================================
+let currentGoalId = null;
+let selectedGoalId = null;
+
+// 仪表盘目标概览
+async function renderDashboardGoals() {
+    try {
+        const res = await fetch('/api/goals');
+        const goals = await res.json();
+        const container = document.getElementById('dashboardGoalList');
+        if (!goals || goals.length === 0) {
+            container.innerHTML = '<div class="empty-state"><p>暂无进行中的目标</p><button class="btn btn-primary btn-sm" onclick="showCreateGoalModal()">创建目标</button></div>';
+            return;
+        }
+        const activeGoals = goals.filter(g => g.status === 'active').slice(0, 3);
+        if (activeGoals.length === 0) {
+            container.innerHTML = '<div class="empty-state"><p>暂无进行中的目标</p><button class="btn btn-primary btn-sm" onclick="showCreateGoalModal()">创建目标</button></div>';
+            return;
+        }
+        const typeLabels = { yearly: '年', quarterly: '季', monthly: '月', weekly: '周', daily: '日' };
+        container.innerHTML = activeGoals.map(g => {
+            return `
+            <div class="dashboard-goal-item">
+                <div class="dashboard-goal-info">
+                    <span class="dashboard-goal-title">${escapeHtml(g.title)}</span>
+                    <span class="dashboard-goal-type">${typeLabels[g.type] || g.type}</span>
+                </div>
+            </div>`;
+        }).join('');
+    } catch (err) {
+        console.error('加载目标概览失败:', err);
+    }
+}
+
+// 目标页面
+async function renderGoalsPage() {
+    try {
+        const res = await fetch('/api/goals');
+        const goals = await res.json();
+        const container = document.getElementById('goalsPageList');
+        const emptyEl = document.getElementById('emptyPageGoals');
+
+        if (!goals || goals.length === 0) {
+            container.innerHTML = '';
+            emptyEl.style.display = '';
+            return;
+        }
+
+        emptyEl.style.display = 'none';
+        const typeLabels = { yearly: '年目标', quarterly: '季度目标', monthly: '月目标', weekly: '周目标', daily: '日目标' };
+        const statusLabels = { active: '进行中', completed: '已完成', abandoned: '已放弃', cancelled: '已取消' };
+
+        container.innerHTML = goals.map(g => {
+            return `
+            <div class="goal-page-item ${selectedGoalId === g.id ? 'selected' : ''}" onclick="selectGoal('${g.id}')">
+                <div class="goal-page-item-header">
+                    <span class="goal-page-item-title">${escapeHtml(g.title)}</span>
+                    <span class="goal-status-badge goal-status-${g.status}">${statusLabels[g.status] || g.status}</span>
+                </div>
+                <div class="goal-page-item-meta">
+                    <span>${typeLabels[g.type] || g.type}</span>
+                </div>
+            </div>`;
+        }).join('');
+
+        // 如果有选中的目标，显示详情
+        if (selectedGoalId) {
+            const goal = goals.find(g => g.id === selectedGoalId);
+            if (goal) showGoalDetail(goal);
+        }
+    } catch (err) {
+        console.error('加载目标失败:', err);
+    }
+}
+
+async function selectGoal(goalId) {
+    selectedGoalId = goalId;
+    // 更新选中状态
+    document.querySelectorAll('.goal-page-item').forEach(el => el.classList.remove('selected'));
+    event.currentTarget.classList.add('selected');
+    // 加载详情
+    try {
+        const res = await fetch(`/api/goals`);
+        const goals = await res.json();
+        const goal = goals.find(g => g.id === goalId);
+        if (goal) showGoalDetail(goal);
+    } catch (err) {
+        console.error('加载目标详情失败:', err);
+    }
+}
+
+function showGoalDetail(goal) {
+    const panel = document.getElementById('goalDetailPanel');
+    const typeLabels = { yearly: '年目标', quarterly: '季度目标', monthly: '月目标', weekly: '周目标', daily: '日目标' };
+    const catLabels = { work: '工作', eating: '吃饭', exercise: '运动', study: '学习' };
+    const statusLabels = { active: '进行中', completed: '已完成', abandoned: '已放弃', cancelled: '已取消' };
+
+    panel.innerHTML = `
+        <div class="goal-detail-header">
+            <h3>${escapeHtml(goal.title)}</h3>
+            <div class="goal-detail-badges">
+                <span class="goal-type-badge">${typeLabels[goal.type] || goal.type}</span>
+                <span class="goal-status-badge goal-status-${goal.status}">${statusLabels[goal.status] || goal.status}</span>
+                ${goal.checkin_required ? '<span class="checkin-tag">打卡</span>' : ''}
+            </div>
+        </div>
+        ${goal.description ? `<p class="goal-detail-desc">${escapeHtml(goal.description)}</p>` : ''}
+        ${goal.cancel_reason ? `<p class="goal-cancel-reason">取消原因: ${escapeHtml(goal.cancel_reason)}</p>` : ''}
+        <div class="goal-detail-meta">
+            <span>${goal.start_date ? new Date(goal.start_date).toLocaleDateString('zh-CN') : ''} ~ ${goal.end_date ? new Date(goal.end_date).toLocaleDateString('zh-CN') : ''}</span>
+            ${goal.target_category ? `<span>分类: ${catLabels[goal.target_category] || goal.target_category}</span>` : ''}
+        </div>
+        <div id="goalDetailCheckin_${goal.id}"></div>
+        <div id="goalDetailAchievements_${goal.id}"></div>
+        <div class="goal-detail-actions">
+            ${goal.status === 'active' ? `
+                <button class="btn btn-primary btn-sm" onclick="completeGoal('${goal.id}')">完成</button>
+                <button class="btn btn-ghost btn-sm" onclick="cancelGoal('${goal.id}')">取消</button>
+            ` : ''}
+            ${goal.status === 'cancelled' ? `<button class="btn btn-primary btn-sm" onclick="restoreGoal('${goal.id}')">恢复</button>` : ''}
+            <button class="btn btn-ghost btn-sm" onclick="deleteGoal('${goal.id}')">删除</button>
+        </div>
+    `;
+
+    // 加载打卡记录
+    if (goal.checkin_required) loadGoalDetailCheckin(goal.id);
+    // 加载成果
+    loadGoalDetailAchievements(goal.id, goal.achievements);
+}
+
+async function loadGoalDetailCheckin(goalId) {
+    const container = document.getElementById(`goalDetailCheckin_${goalId}`);
+    if (!container) return;
+    try {
+        const now = new Date();
+        const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+        const res = await fetch(`/api/goals/${goalId}/checkins?days=365`);
+        const checkins = await res.json();
+        const checkinDates = new Set(checkins.map(c => c.checkin_date.slice(0, 10)));
+        const todayCheckin = checkins.find(c => c.checkin_date.slice(0, 10) === today);
+        const isCheckedToday = !!todayCheckin;
+
+        // 计算连续打卡
+        let streak = 0;
+        const d = new Date();
+        for (let i = 0; i < 365; i++) {
+            const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+            if (checkinDates.has(ds)) { streak++; d.setDate(d.getDate() - 1); }
+            else if (i === 0) { d.setDate(d.getDate() - 1); continue; }
+            else break;
+        }
+
+        // 生成当月日历
+        const year = now.getFullYear();
+        const month = now.getMonth();
+        const firstDay = new Date(year, month, 1).getDay();
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        const dayNames = ['日', '一', '二', '三', '四', '五', '六'];
+        let calendarHtml = '';
+        // 星期头
+        calendarHtml += `<div class="checkin-cal-header">${dayNames.map(d => `<div>${d}</div>`).join('')}</div>`;
+        // 日期格子
+        calendarHtml += '<div class="checkin-cal-grid">';
+        for (let i = 0; i < firstDay; i++) calendarHtml += '<div class="checkin-cal-cell empty"></div>';
+        for (let day = 1; day <= daysInMonth; day++) {
+            const ds = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+            const isChecked = checkinDates.has(ds);
+            const isToday = ds === today;
+            const isPast = new Date(ds) < new Date(today);
+            let cls = 'checkin-cal-cell';
+            if (isToday) cls += ' today';
+            if (isChecked) cls += ' checked';
+            else if (isPast) cls += ' missed';
+            calendarHtml += `<div class="${cls}" title="${ds}">${day}<span class="checkin-cal-icon">${isChecked ? '✓' : (isPast ? '✗' : '')}</span></div>`;
+        }
+        calendarHtml += '</div>';
+
+        container.innerHTML = `
+            <div class="goal-checkin-section">
+                ${!isCheckedToday ? '<div class="goal-checkin-alert">今日还未打卡</div>' : ''}
+                <div class="checkin-cal-title">${year}年${month+1}月</div>
+                ${calendarHtml}
+                <div class="goal-checkin-row" style="margin-top:12px">
+                    <div class="goal-checkin-right">
+                        ${streak > 0 ? `<span class="goal-streak">🔥 连续${streak}天</span>` : ''}
+                        ${isCheckedToday
+                            ? `<button class="goal-checkin-btn done" onclick="undoCheckinGoal('${goalId}', '${todayCheckin.id}')">今日已打卡</button>`
+                            : `<button class="goal-checkin-btn" onclick="checkinGoal('${goalId}')">打卡</button>`
+                        }
+                    </div>
+                </div>
+            </div>`;
+    } catch (err) {
+        container.innerHTML = '';
+    }
+}
+
+async function showGoalCheckinHistory(goalId) {
+    try {
+        const res = await fetch(`/api/goals/${goalId}/checkins?days=365`);
+        const checkins = await res.json();
+        const checkinDates = new Set(checkins.map(c => c.checkin_date.slice(0, 10)));
+        const totalDays = checkinDates.size;
+
+        // 计算连续打卡
+        let streak = 0;
+        const now = new Date();
+        const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+        const d = new Date();
+        for (let i = 0; i < 365; i++) {
+            const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+            if (checkinDates.has(ds)) { streak++; d.setDate(d.getDate() - 1); }
+            else if (i === 0) { d.setDate(d.getDate() - 1); continue; }
+            else break;
+        }
+
+        // 生成近3个月日历
+        const dayNames = ['日', '一', '二', '三', '四', '五', '六'];
+        let calHtml = '';
+        for (let m = 0; m < 3; m++) {
+            const cm = new Date(now.getFullYear(), now.getMonth() - m, 1);
+            const cy = cm.getFullYear(), cmo = cm.getMonth();
+            const firstDay = new Date(cy, cmo, 1).getDay();
+            const daysInMonth = new Date(cy, cmo + 1, 0).getDate();
+            calHtml += `<div class="checkin-history-month">`;
+            calHtml += `<div class="checkin-cal-title">${cy}年${cmo+1}月</div>`;
+            calHtml += `<div class="checkin-cal-header">${dayNames.map(d => `<div>${d}</div>`).join('')}</div>`;
+            calHtml += '<div class="checkin-cal-grid">';
+            for (let i = 0; i < firstDay; i++) calHtml += '<div class="checkin-cal-cell empty"></div>';
+            for (let day = 1; day <= daysInMonth; day++) {
+                const ds = `${cy}-${String(cmo+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+                const isChecked = checkinDates.has(ds);
+                const isToday = ds === today;
+                const isPast = new Date(ds) < new Date(today);
+                let cls = 'checkin-cal-cell';
+                if (isToday) cls += ' today';
+                if (isChecked) cls += ' checked';
+                else if (isPast) cls += ' missed';
+                calHtml += `<div class="${cls}">${day}<span class="checkin-cal-icon">${isChecked ? '✓' : (isPast ? '✗' : '')}</span></div>`;
+            }
+            calHtml += '</div></div>';
+        }
+
+        const modal = document.getElementById('modalOverlay');
+        modal.innerHTML = `
+            <div class="modal" style="max-width:420px">
+                <div class="modal-header">
+                    <h3>打卡记录</h3>
+                    <button class="modal-close" onclick="closeModal()">&times;</button>
+                </div>
+                <div class="modal-body" style="max-height:60vh;overflow-y:auto">
+                    <div style="display:flex;gap:16px;margin-bottom:16px;padding:12px;background:var(--bg-secondary);border-radius:8px">
+                        <div style="text-align:center;flex:1">
+                            <div style="font-size:24px;font-weight:700;color:var(--orange)">${totalDays}</div>
+                            <div style="font-size:12px;color:var(--text-secondary)">累计打卡</div>
+                        </div>
+                        <div style="text-align:center;flex:1">
+                            <div style="font-size:24px;font-weight:700;color:var(--red)">🔥 ${streak}</div>
+                            <div style="font-size:12px;color:var(--text-secondary)">连续打卡</div>
+                        </div>
+                    </div>
+                    ${calHtml}
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-ghost" onclick="closeModal()">关闭</button>
+                </div>
+            </div>
+        `;
+        modal.style.display = 'flex';
+    } catch (err) {
+        showToast('获取打卡记录失败', 'error');
+    }
+}
+
+function loadGoalDetailAchievements(goalId, achievements) {
+    const container = document.getElementById(`goalDetailAchievements_${goalId}`);
+    if (!container) return;
+    container.innerHTML = `
+        <div class="goal-achievements-section">
+            <div class="goal-achievements-header">
+                <span>成果 (${(achievements || []).length})</span>
+                <div style="display:flex;gap:6px">
+                    <button class="btn btn-ghost btn-sm" onclick="showGoalAchievementModal('${goalId}')">+ 文字</button>
+                    <button class="btn btn-ghost btn-sm" onclick="uploadGoalAchievement('${goalId}')">+ 文件</button>
+                </div>
+            </div>
+            <div class="goal-achievements-list">
+                ${(!achievements || achievements.length === 0) ? '<div class="empty-hint">暂无成果</div>' :
+                achievements.map(a => `
+                    <div class="goal-achievement-item">
+                        <div class="goal-achievement-content">
+                            ${a.type === 'image' ? `<img src="${a.content}" style="max-width:100%;border-radius:6px">` :
+                              a.type === 'video' ? `<video src="${a.content}" controls style="max-width:100%;border-radius:6px"></video>` :
+                              escapeHtml(a.content)}
+                        </div>
+                        <button class="btn btn-ghost btn-sm" onclick="deleteGoalAchievement('${goalId}', '${a.id}')">删除</button>
+                    </div>
+                `).join('')}
+            </div>
+        </div>`;
+}
+
+function showCreateGoalForm() {
+    const panel = document.getElementById('goalDetailPanel');
+    panel.innerHTML = `
+        <div class="goal-create-form">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+                <h3 style="margin:0">新建目标</h3>
+                <button class="btn btn-ghost btn-sm" onclick="showGoalAiForm()">AI智能创建</button>
+            </div>
+            <div class="form-group">
+                <label class="form-label">目标名称 *</label>
+                <input type="text" class="form-input" id="goalTitle" placeholder="如：减重5公斤">
+            </div>
+            <div class="form-group">
+                <label class="form-label">目标描述</label>
+                <textarea class="form-input" id="goalDescription" rows="2" placeholder="详细描述你的目标"></textarea>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">目标类型</label>
+                    <select class="form-input" id="goalType" onchange="updateGoalEndDate()">
+                        <option value="yearly">年目标</option>
+                        <option value="quarterly">季度目标</option>
+                        <option value="monthly" selected>月目标</option>
+                        <option value="weekly">周目标</option>
+                        <option value="daily">日目标</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">关联分类</label>
+                    <select class="form-input" id="goalCategory">
+                        <option value="">不限</option>
+                        <option value="work">工作</option>
+                        <option value="eating">吃饭</option>
+                        <option value="exercise">运动</option>
+                        <option value="study">学习</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <div class="form-checkbox-row">
+                        <label class="switch"><input type="checkbox" id="goalCheckinRequired" checked><span class="switch-slider"></span></label>
+                        <span class="form-label" style="margin-bottom:0">开启打卡</span>
+                    </div>
+                </div>
+            </div>
+            <div class="form-group">
+                <div class="form-checkbox-row">
+                    <label class="switch"><input type="checkbox" id="goalCheckinRemind" checked><span class="switch-slider"></span></label>
+                    <span class="form-label" style="margin-bottom:0">打卡提醒</span>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">开始日期 *</label>
+                    <input type="text" class="form-input dt-picker-input" id="goalStartDate" readonly placeholder="选择开始日期">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">结束日期 *</label>
+                    <input type="text" class="form-input dt-picker-input" id="goalEndDate" readonly placeholder="选择结束日期">
+                </div>
+            </div>
+            <div class="goal-create-actions">
+                <button class="btn btn-ghost" onclick="cancelGoalForm()">取消</button>
+                <button class="btn btn-primary" onclick="saveGoalFromForm()">保存</button>
+            </div>
+        </div>
+    `;
+
+    // 设置默认日期
+    const today = new Date();
+    const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    document.getElementById('goalStartDate').value = fmt(today);
+    updateGoalEndDate();
+}
+
+function updateGoalEndDate() {
+    const type = document.getElementById('goalType').value;
+    const startStr = document.getElementById('goalStartDate').value;
+    if (!startStr) return;
+    const parts = startStr.split('-');
+    const start = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+    const end = new Date(start);
+    if (type === 'yearly') end.setFullYear(end.getFullYear() + 1);
+    else if (type === 'quarterly') end.setMonth(end.getMonth() + 3);
+    else if (type === 'monthly') end.setMonth(end.getMonth() + 1);
+    else if (type === 'weekly') end.setDate(end.getDate() + 7);
+    else if (type === 'daily') end.setDate(end.getDate() + 1);
+    const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    document.getElementById('goalEndDate').value = fmt(end);
+}
+
+function cancelGoalForm() {
+    const panel = document.getElementById('goalDetailPanel');
+    panel.innerHTML = '<div class="goal-detail-empty"><p>选择一个目标查看详情</p></div>';
+    selectedGoalId = null;
+    renderGoalsPage();
+}
+
+async function saveGoalFromForm() {
+    const title = document.getElementById('goalTitle').value.trim();
+    const description = document.getElementById('goalDescription').value.trim();
+    const type = document.getElementById('goalType').value;
+    const target_category = document.getElementById('goalCategory').value || null;
+    const start_date = document.getElementById('goalStartDate').value;
+    const end_date = document.getElementById('goalEndDate').value;
+    const checkin_required = document.getElementById('goalCheckinRequired').checked;
+    const checkin_remind = document.getElementById('goalCheckinRemind').checked;
+
+    if (!title) { showToast('请输入目标名称', 'error'); return; }
+    if (!start_date || !end_date) { showToast('请选择日期范围', 'error'); return; }
+
+    try {
+        const res = await fetch('/api/goals', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title, description, type, target_category, start_date, end_date,
+                                   checkin_required, checkin_remind }),
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast('目标已创建');
+            selectedGoalId = null;
+            renderGoalsPage();
+        }
+    } catch (err) {
+        showToast('创建失败', 'error');
+    }
+}
+
+// 打卡功能
+async function checkinGoal(goalId) {
+    try {
+        const res = await fetch(`/api/goals/${goalId}/checkin`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({}),
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast('打卡成功');
+            // 重新加载目标详情
+            const goalsRes = await fetch('/api/goals');
+            const goals = await goalsRes.json();
+            const goal = goals.find(g => g.id === goalId);
+            if (goal) {
+                showGoalDetail(goal);
+            } else {
+                renderGoalsPage();
+            }
+        }
+    } catch (err) {
+        showToast('打卡失败', 'error');
+    }
+}
+
+async function undoCheckinGoal(goalId, checkinId) {
+    if (!confirm('确定取消今天的打卡？')) return;
+    try {
+        await fetch(`/api/goals/${goalId}/checkin/${checkinId}`, { method: 'DELETE' });
+        showToast('已取消打卡');
+        // 重新加载目标详情
+        const goalsRes = await fetch('/api/goals');
+        const goals = await goalsRes.json();
+        const goal = goals.find(g => g.id === goalId);
+        if (goal) {
+            showGoalDetail(goal);
+        } else {
+            renderGoalsPage();
+        }
+    } catch (err) {
+        showToast('取消失败', 'error');
+    }
+}
+
+// 完成、取消、恢复、删除目标
+async function completeGoal(id) {
+    if (!confirm('确定标记此目标为已完成？')) return;
+    try {
+        await fetch(`/api/goals/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'completed' }),
+        });
+        showToast('目标已完成');
+        selectedGoalId = null;
+        renderGoalsPage();
+    } catch (err) {
+        showToast('操作失败', 'error');
+    }
+}
+
+async function cancelGoal(id) {
+    const reason = prompt('请输入取消原因（可选）：');
+    if (reason === null) return;
+    try {
+        await fetch(`/api/goals/${id}/cancel`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cancel_reason: reason }),
+        });
+        showToast('目标已取消');
+        selectedGoalId = null;
+        renderGoalsPage();
+    } catch (err) {
+        showToast('操作失败', 'error');
+    }
+}
+
+async function restoreGoal(id) {
+    if (!confirm('确定恢复此目标？')) return;
+    try {
+        await fetch(`/api/goals/${id}/restore`, { method: 'PATCH' });
+        showToast('目标已恢复');
+        selectedGoalId = null;
+        renderGoalsPage();
+    } catch (err) {
+        showToast('操作失败', 'error');
+    }
+}
+
+async function deleteGoal(id) {
+    if (!confirm('确定删除此目标？此操作不可撤销。')) return;
+    try {
+        await fetch(`/api/goals/${id}`, { method: 'DELETE' });
+        showToast('目标已删除');
+        selectedGoalId = null;
+        renderGoalsPage();
+    } catch (err) {
+        showToast('删除失败', 'error');
+    }
+}
+
+// AI智能创建目标
+let goalAiSessionId = 'goal_session_' + Date.now().toString(36);
+let goalAiProcessing = false;
+
+function showGoalAiForm() {
+    const panel = document.getElementById('goalDetailPanel');
+    panel.innerHTML = `
+        <div class="goal-create-form">
+            <h3>智能创建目标</h3>
+            <p style="color:var(--text-secondary);margin-bottom:16px">用自然语言描述你的目标，AI帮你创建</p>
+            <div class="ai-chat-card">
+                <div class="ai-chat-body" id="goalAiChatBody">
+                    <div class="ai-message assistant">
+                        <div class="ai-message-content">告诉我你想达成什么目标，我来帮你创建。例如：</div>
+                    </div>
+                    <div class="ai-examples">
+                        <button class="ai-example-btn" onclick="sendGoalAiExample('我想每周运动3次，每次1小时')">每周运动3次</button>
+                        <button class="ai-example-btn" onclick="sendGoalAiExample('今年要读24本书')">年目标</button>
+                        <button class="ai-example-btn" onclick="sendGoalAiExample('每天学英语30分钟')">每天学英语</button>
+                    </div>
+                </div>
+                <div class="ai-chat-footer">
+                    <div class="ai-input-wrapper">
+                        <textarea class="form-input ai-input" id="goalAiInput" rows="1" placeholder="描述你的目标..." oninput="autoResizeTextarea(this)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendGoalAiMessage()}"></textarea>
+                        <button class="ai-send-btn" onclick="sendGoalAiMessage()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22,2 15,22 11,13 2,9"/></svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="goal-create-actions" style="margin-top:16px">
+                <button class="btn btn-ghost" onclick="cancelGoalForm()">返回</button>
+            </div>
+        </div>
+    `;
+}
+
+async function sendGoalAiMessage() {
+    const input = document.getElementById('goalAiInput');
+    const message = input.value.trim();
+    if (!message || goalAiProcessing) return;
+    input.value = '';
+    autoResizeTextarea(input);
+
+    const chatBody = document.getElementById('goalAiChatBody');
+    chatBody.innerHTML += `<div class="ai-message user"><div class="ai-message-content">${escapeHtml(message)}</div></div>`;
+    chatBody.innerHTML += `<div class="ai-message assistant" id="goalAiTyping"><div class="ai-typing"><span></span><span></span><span></span></div></div>`;
+    chatBody.scrollTop = chatBody.scrollHeight;
+
+    goalAiProcessing = true;
+    try {
+        const res = await fetch('/api/ai/goal', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message, sessionId: goalAiSessionId }),
+            signal: AbortSignal.timeout(90000),
+        });
+        const data = await res.json();
+        const typingEl = document.getElementById('goalAiTyping');
+        if (typingEl) typingEl.remove();
+
+        if (data.error) {
+            chatBody.innerHTML += `<div class="ai-message assistant"><div class="ai-message-content" style="color:var(--red)">${escapeHtml(data.error)}</div></div>`;
+        } else {
+            chatBody.innerHTML += `<div class="ai-message assistant"><div class="ai-message-content">${formatAiReply(data.reply)}</div></div>`;
+            if (data.goal) {
+                chatBody.innerHTML += `
+                    <div class="ai-goal-preview">
+                        <div class="ai-goal-preview-title">目标预览</div>
+                        <div class="ai-goal-preview-info">
+                            <strong>${escapeHtml(data.goal.title)}</strong>
+                            ${data.goal.description ? `<div>${escapeHtml(data.goal.description)}</div>` : ''}
+                            <div>类型: ${data.goal.type === 'yearly' ? '年目标' : data.goal.type === 'quarterly' ? '季度目标' : data.goal.type === 'monthly' ? '月目标' : data.goal.type === 'weekly' ? '周目标' : '日目标'} | 分类: ${data.goal.target_category || '不限'}</div>
+                            <div>${data.goal.start_date} ~ ${data.goal.end_date}</div>
+                        </div>
+                        <button class="btn btn-primary btn-sm" onclick='confirmAiGoal(${JSON.stringify(data.goal).replace(/'/g, "&#39;")})'>确认创建</button>
+                    </div>`;
+            }
+        }
+        chatBody.scrollTop = chatBody.scrollHeight;
+    } catch (err) {
+        const typingEl = document.getElementById('goalAiTyping');
+        if (typingEl) typingEl.remove();
+        chatBody.innerHTML += `<div class="ai-message assistant"><div class="ai-message-content" style="color:var(--red)">请求失败: ${escapeHtml(err.message)}</div></div>`;
+    }
+    goalAiProcessing = false;
+}
+
+function sendGoalAiExample(text) {
+    document.getElementById('goalAiInput').value = text;
+    sendGoalAiMessage();
+}
+
+async function confirmAiGoal(data) {
+    try {
+        const res = await fetch('/api/goals', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                title: data.title,
+                description: data.description || '',
+                type: data.type || 'monthly',
+                target_category: data.target_category || null,
+                start_date: data.start_date,
+                end_date: data.end_date,
+                checkin_required: data.checkin_required !== undefined ? data.checkin_required : true,
+            }),
+        });
+        const result = await res.json();
+        if (result.success) {
+            showToast('目标已创建');
+            selectedGoalId = result.id;
+            renderGoalsPage();
+        }
+    } catch (err) {
+        showToast('创建失败', 'error');
+    }
+}
+
+// 目标成果
+let currentGoalAchievementId = null;
+
+function showGoalAchievementModal(goalId) {
+    currentGoalAchievementId = goalId;
+    const panel = document.getElementById('goalDetailPanel');
+    const currentContent = panel.innerHTML;
+    panel.innerHTML = `
+        <div class="goal-create-form">
+            <h3>添加成果</h3>
+            <div class="form-group">
+                <label class="form-label">成果内容</label>
+                <textarea class="form-input" id="goalAchievementInput" rows="4" placeholder="记录你的成果..."></textarea>
+            </div>
+            <div class="goal-create-actions">
+                <button class="btn btn-ghost" onclick="selectedGoalId='${goalId}';renderGoalsPage()">取消</button>
+                <button class="btn btn-primary" onclick="saveGoalAchievement('${goalId}')">保存</button>
+            </div>
+        </div>
+    `;
+}
+
+async function saveGoalAchievement(goalId) {
+    const content = document.getElementById('goalAchievementInput').value.trim();
+    if (!content) { showToast('请输入成果内容', 'error'); return; }
+    try {
+        await fetch(`/api/goals/${goalId}/achievements`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content, type: 'text' }),
+        });
+        showToast('成果已添加');
+        selectedGoalId = goalId;
+        renderGoalsPage();
+    } catch (err) {
+        showToast('添加失败', 'error');
+    }
+}
+
+async function uploadGoalAchievement(goalId) {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*,video/*';
+    input.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const formData = new FormData();
+        formData.append('file', file);
+        try {
+            await fetch(`/api/goals/${goalId}/achievements/upload`, {
+                method: 'POST',
+                body: formData,
+            });
+            showToast('文件已上传');
+            selectedGoalId = goalId;
+            renderGoalsPage();
+        } catch (err) {
+            showToast('上传失败', 'error');
+        }
+    };
+    input.click();
+}
+
+async function deleteGoalAchievement(goalId, achId) {
+    if (!confirm('确定删除此成果？')) return;
+    try {
+        await fetch(`/api/goals/${goalId}/achievements/${achId}`, { method: 'DELETE' });
+        showToast('成果已删除');
+        selectedGoalId = goalId;
+        renderGoalsPage();
+    } catch (err) {
+        showToast('删除失败', 'error');
+    }
+}
+
+// 绑定日程到目标
+function showBindGoalModal(goalId) {
+    currentGoalId = goalId;
+    const panel = document.getElementById('goalDetailPanel');
+    const unbound = schedules.filter(s => !s.completed && !s.cancel_reason);
+    if (unbound.length === 0) {
+        panel.innerHTML = `
+            <div class="goal-create-form">
+                <h3>绑定日程</h3>
+                <p style="color:var(--text-secondary)">没有可绑定的日程</p>
+                <div class="goal-create-actions">
+                    <button class="btn btn-ghost" onclick="selectedGoalId='${goalId}';renderGoalsPage()">返回</button>
+                </div>
+            </div>
+        `;
+        return;
+    }
+    panel.innerHTML = `
+        <div class="goal-create-form">
+            <h3>绑定日程到目标</h3>
+            <div class="bind-schedule-list">
+                ${unbound.map(s => {
+                    const ti = formatTimeDisplay(s.start, s.end);
+                    return `
+                    <div class="bind-schedule-item" onclick="bindScheduleToGoal('${goalId}', '${s.id}')">
+                        <div class="bind-schedule-info">
+                            <div class="bind-schedule-title">${escapeHtml(s.title)}</div>
+                            <div class="bind-schedule-time">${ti.date} ${ti.time}</div>
+                        </div>
+                        <button class="btn btn-primary btn-sm">绑定</button>
+                    </div>`;
+                }).join('')}
+            </div>
+            <div class="goal-create-actions">
+                <button class="btn btn-ghost" onclick="selectedGoalId='${goalId}';renderGoalsPage()">返回</button>
+            </div>
+        </div>
+    `;
+}
+
+async function bindScheduleToGoal(goalId, scheduleId) {
+    try {
+        await fetch(`/api/goals/${goalId}/bind`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ scheduleId }),
+        });
+        showToast('日程已绑定');
+        selectedGoalId = goalId;
+        renderGoalsPage();
+    } catch (err) {
+        showToast('绑定失败', 'error');
+    }
+}
+
+async function unbindScheduleFromGoal(goalId, scheduleId) {
+    try {
+        await fetch(`/api/goals/${goalId}/unbind/${scheduleId}`, { method: 'DELETE' });
+        showToast('已解绑');
+        selectedGoalId = goalId;
+        renderGoalsPage();
+    } catch (err) {
+        showToast('解绑失败', 'error');
+    }
+}
+
+// 保持兼容性的函数
+async function renderGoals() {
+    renderGoalsPage();
+}
+
+function showCreateGoalModal() {
+    switchPage('goals');
+    setTimeout(() => showCreateGoalForm(), 100);
+}
+
+function closeGoalModal() {}
+
+// ========================================
+// AI 复盘教练
+// ========================================
+let reviewSessionId = 'review_' + Date.now().toString(36);
+let reviewProcessing = false;
+
+function startReviewChat() {
+    const area = document.getElementById('reviewChatArea');
+    area.style.display = '';
+    const body = document.getElementById('reviewChatBody');
+    body.innerHTML = `
+        <div class="ai-welcome">
+            <div class="ai-avatar ai-avatar-bot">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M12 2a7 7 0 0 1 7 7c0 2.5-1.5 4.5-3 6l-1 3H9l-1-3c-1.5-1.5-3-3.5-3-6a7 7 0 0 1 7-7z"/>
+                    <line x1="9" y1="21" x2="15" y2="21"/>
+                </svg>
+            </div>
+            <div class="ai-welcome-text">
+                <p>你好！我是MIMO复盘教练，基于你本周的日程数据来帮你分析和改进。</p>
+            </div>
+        </div>`;
+    // Auto-send first message
+    reviewSessionId = 'review_' + Date.now().toString(36);
+    document.getElementById('reviewInput').value = '请帮我分析本周的日程完成情况';
+    sendReviewMessage();
+}
+
+async function sendReviewMessage() {
+    if (reviewProcessing) return;
+    const input = document.getElementById('reviewInput');
+    const message = input.value.trim();
+    if (!message) return;
+
+    reviewProcessing = true;
+    input.value = '';
+    input.style.height = 'auto';
+
+    renderReviewMessage('user', message);
+
+    const loadingId = 'review_loading_' + Date.now();
+    renderReviewMessage('assistant', '<div class="ai-typing"><span></span><span></span><span></span></div>', loadingId);
+
+    try {
+        const d = weeklyStartDate;
+        const startDateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        const res = await fetch('/api/ai/review', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message, sessionId: reviewSessionId, startDate: startDateStr }),
+            signal: AbortSignal.timeout(90000),
+        });
+        const data = await res.json();
+
+        const loadingEl = document.getElementById(loadingId);
+        if (loadingEl) loadingEl.remove();
+
+        if (!data.success) {
+            renderReviewMessage('assistant', `<span class="ai-error">${escapeHtml(data.error || '请求失败')}</span>`);
+            return;
+        }
+
+        if (data.reply) {
+            renderReviewMessage('assistant', formatAiReply(data.reply));
+        }
+    } catch (err) {
+        const loadingEl = document.getElementById(loadingId);
+        if (loadingEl) loadingEl.remove();
+        const msg = err.name === 'TimeoutError' ? '请求超时，请稍后重试' : '网络错误，请检查连接后重试';
+        renderReviewMessage('assistant', `<span class="ai-error">${msg}</span>`);
+    } finally {
+        reviewProcessing = false;
+        input.focus();
+    }
+}
+
+function renderReviewMessage(role, html, id) {
+    const body = document.getElementById('reviewChatBody');
+    const isUser = role === 'user';
+    const div = document.createElement('div');
+    div.className = `ai-msg ${isUser ? 'ai-msg-user' : 'ai-msg-bot'}`;
+    if (id) div.id = id;
+    div.innerHTML = `
+        <div class="ai-avatar ${isUser ? 'ai-avatar-user' : 'ai-avatar-bot'}">
+            ${isUser
+                ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>'
+                : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2a7 7 0 0 1 7 7c0 2.5-1.5 4.5-3 6l-1 3H9l-1-3c-1.5-1.5-3-3.5-3-6a7 7 0 0 1 7-7z"/><line x1="9" y1="21" x2="15" y2="21"/></svg>'
+            }
+        </div>
+        <div class="ai-msg-content">${html}</div>
+    `;
+    body.appendChild(div);
+    body.scrollTop = body.scrollHeight;
+}
+
+// ========================================
+// ========================================
+// 天气告警
+// ========================================
+async function checkWeatherAlerts() {
+    const city = localStorage.getItem('mimo_weather_city') || 'Beijing';
+    try {
+        const res = await fetch(`/api/weather/alerts?city=${encodeURIComponent(city)}`);
+        const data = await res.json();
+        if (data.alerts && data.alerts.length > 0) {
+            showWeatherAlerts(data.alerts);
+        }
+    } catch (err) {
+        console.error('检查天气告警失败:', err);
+    }
+}
+
+function showWeatherAlerts(alerts) {
+    const forecastEl = document.getElementById('weatherForecast');
+    if (forecastEl) {
+        const oldAlerts = forecastEl.querySelector('.weather-alert-section');
+        if (oldAlerts) oldAlerts.remove();
+        if (alerts.length > 0) {
+            const alertHtml = `<div class="weather-alert-section">
+                <h3 class="weather-alert-title">⚠️ 天气告警 - 受影响的户外日程</h3>
+                ${alerts.map(a => {
+                    const startTime = new Date(a.startTime);
+                    const timeStr = `${startTime.getMonth()+1}/${startTime.getDate()} ${String(startTime.getHours()).padStart(2,'0')}:${String(startTime.getMinutes()).padStart(2,'0')}`;
+                    return `<div class="weather-alert-item">
+                        <div class="weather-alert-info">
+                            <div class="weather-alert-name">${escapeHtml(a.title)}</div>
+                            <div class="weather-alert-meta">${timeStr} | ${a.weather}</div>
+                            <div class="weather-alert-suggestion">${escapeHtml(a.suggestion)}</div>
+                        </div>
+                    </div>`;
+                }).join('')}
+            </div>`;
+            forecastEl.insertAdjacentHTML('afterbegin', alertHtml);
+        }
+    }
+}
+
+// 启动时检查天气告警
+const _prevLoadSchedules = loadSchedules;
+loadSchedules = async function() {
+    await _prevLoadSchedules();
+    checkWeatherAlerts();
+};
