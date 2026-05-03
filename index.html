@@ -100,6 +100,20 @@
                     </svg>
                     <span>天气视图</span>
                 </a>
+                <a class="nav-item" data-page="weekly" onclick="switchPage('weekly')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                        <line x1="16" y1="2" x2="16" y2="6"/>
+                        <line x1="8" y1="2" x2="8" y2="6"/>
+                        <line x1="3" y1="10" x2="21" y2="10"/>
+                        <line x1="8" y1="14" x2="8" y2="14.01"/>
+                        <line x1="12" y1="14" x2="12" y2="14.01"/>
+                        <line x1="16" y1="14" x2="16" y2="14.01"/>
+                        <line x1="8" y1="18" x2="8" y2="18.01"/>
+                        <line x1="12" y1="18" x2="12" y2="18.01"/>
+                    </svg>
+                    <span>周报</span>
+                </a>
             </nav>
 
             <!-- 音乐播放器 -->
@@ -496,7 +510,7 @@
                             </div>
                             <div class="ai-chat-footer">
                                 <div class="ai-input-wrapper">
-                                    <input type="text" class="form-input ai-input" id="aiInput" placeholder="描述你想创建的日程..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendAiMessage()}">
+                                    <textarea class="form-input ai-input" id="aiInput" rows="1" placeholder="描述你想创建的日程...（Shift+Enter换行）" oninput="autoResizeTextarea(this)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendAiMessage()}"></textarea>
                                     <button class="ai-voice-btn" id="aiVoiceBtn" onclick="toggleVoiceInput()" title="语音输入">
                                         <svg class="mic-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                             <rect x="9" y="1" width="6" height="12" rx="3"/>
@@ -628,6 +642,59 @@
                         </div>
                     </div>
                     <div class="weather-forecast" id="weatherForecast"></div>
+                </div>
+
+                <!-- 周报页面 -->
+                <div class="page" id="page-weekly">
+                    <div class="weekly-nav">
+                        <button class="dt-cal-nav-btn" onclick="weeklyPrevWeek()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15,18 9,12 15,6"/></svg>
+                        </button>
+                        <span class="weekly-date-label" id="weeklyDateLabel"></span>
+                        <button class="dt-cal-nav-btn" onclick="weeklyNextWeek()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9,18 15,12 9,6"/></svg>
+                        </button>
+                        <button class="btn btn-ghost btn-sm" onclick="weeklyThisWeek()" style="margin-left:8px">本周</button>
+                        <button class="btn btn-primary btn-sm" onclick="downloadWeeklyReport()" style="margin-left:auto">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                <polyline points="7,10 12,15 17,10"/>
+                                <line x1="12" y1="15" x2="12" y2="3"/>
+                            </svg>
+                            下载Excel
+                        </button>
+                    </div>
+                    <div class="weekly-overview" id="weeklyOverview"></div>
+                    <div class="weekly-chart-row">
+                        <div class="card weekly-chart-card">
+                            <div class="card-header"><h3>分类时间分布</h3></div>
+                            <div class="card-body">
+                                <div class="weekly-pie" id="weeklyPie"></div>
+                                <div class="weekly-pie-legend" id="weeklyPieLegend"></div>
+                            </div>
+                        </div>
+                        <div class="card weekly-chart-card">
+                            <div class="card-header"><h3>每日时间安排</h3></div>
+                            <div class="card-body" id="weeklyDayBars"></div>
+                        </div>
+                    </div>
+                    <div class="weekly-chart-row">
+                        <div class="card weekly-chart-card">
+                            <div class="card-header"><h3>精力与时段分析</h3></div>
+                            <div class="card-body">
+                                <div id="weeklyEnergy"></div>
+                                <div id="weeklyPeriod" style="margin-top:16px"></div>
+                            </div>
+                        </div>
+                        <div class="card weekly-chart-card">
+                            <div class="card-header"><h3>24小时分布</h3></div>
+                            <div class="card-body" id="weeklyHourly"></div>
+                        </div>
+                    </div>
+                    <div class="card weekly-chart-card">
+                        <div class="card-header"><h3>智能建议</h3></div>
+                        <div class="card-body" id="weeklyAdvice"></div>
+                    </div>
                 </div>
             </div>
         </main>

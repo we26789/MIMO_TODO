@@ -6,6 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const zlib = require('zlib');
 const multer = require('multer');
+const ExcelJS = require('exceljs');
 
 const app = express();
 const PORT = 3000;
@@ -445,6 +446,253 @@ app.get('/api/schedules/stats', async (req, res) => {
 });
 
 // ========================================
+// 周报 API
+// ========================================
+function formatDateLocal(d) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function getWeekRange(startDateStr) {
+    const parts = startDateStr.split('-').map(Number);
+    const d = new Date(parts[0], parts[1] - 1, parts[2]);
+    const day = d.getDay() || 7;
+    const monday = new Date(d.getFullYear(), d.getMonth(), d.getDate() - day + 1);
+    const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 7);
+    return { monday, sunday };
+}
+
+app.get('/api/schedules/weekly-report', async (req, res) => {
+    try {
+        const startDate = req.query.startDate || formatDateLocal(new Date());
+        const { monday, sunday } = getWeekRange(startDate);
+        const mondayStr = formatDateLocal(monday);
+        const endDate = formatDateLocal(sunday);
+
+        const dayLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+
+        // 基础统计（cancel_reason 列可能不存在，分开查询）
+        const [overview] = await pool.query(
+            `SELECT COUNT(*) as total,
+                    SUM(completed) as completedCount,
+                    SUM(TIMESTAMPDIFF(MINUTE, start_time, end_time)) as totalMinutes
+             FROM schedules WHERE start_time >= ? AND start_time < ?`,
+            [mondayStr, endDate]
+        );
+        let cancelledCount = 0;
+        try {
+            const [cancelRows] = await pool.query(
+                `SELECT SUM(CASE WHEN cancel_reason IS NOT NULL THEN 1 ELSE 0 END) as cancelledCount
+                 FROM schedules WHERE start_time >= ? AND start_time < ?`,
+                [mondayStr, endDate]
+            );
+            cancelledCount = cancelRows[0].cancelledCount || 0;
+        } catch (e) { /* cancel_reason column doesn't exist yet */ }
+
+        // 分类统计
+        const [byCategory] = await pool.query(
+            `SELECT category, COUNT(*) as count,
+                    SUM(TIMESTAMPDIFF(MINUTE, start_time, end_time)) as totalMinutes
+             FROM schedules WHERE start_time >= ? AND start_time < ?
+             GROUP BY category ORDER BY totalMinutes DESC`,
+            [mondayStr, endDate]
+        );
+
+        // 每日统计
+        const [byDay] = await pool.query(
+            `SELECT DATE(start_time) as date, COUNT(*) as count,
+                    SUM(TIMESTAMPDIFF(MINUTE, start_time, end_time)) as totalMinutes
+             FROM schedules WHERE start_time >= ? AND start_time < ?
+             GROUP BY DATE(start_time) ORDER BY date`,
+            [mondayStr, endDate]
+        );
+        const byDayWithLabels = byDay.map(d => ({
+            ...d,
+            dayLabel: dayLabels[(new Date(d.date).getDay() + 6) % 7]
+        }));
+
+        // 精力等级统计
+        const [byEnergy] = await pool.query(
+            `SELECT energy_level, COUNT(*) as count
+             FROM schedules WHERE start_time >= ? AND start_time < ?
+             GROUP BY energy_level`,
+            [mondayStr, endDate]
+        );
+
+        // 时段统计
+        const [byPeriod] = await pool.query(
+            `SELECT
+                CASE
+                    WHEN HOUR(start_time) >= 6 AND HOUR(start_time) < 9 THEN 'morning'
+                    WHEN HOUR(start_time) >= 9 AND HOUR(start_time) < 12 THEN 'am'
+                    WHEN HOUR(start_time) >= 12 AND HOUR(start_time) < 18 THEN 'pm'
+                    WHEN HOUR(start_time) >= 18 AND HOUR(start_time) < 22 THEN 'evening'
+                    ELSE 'night'
+                END as period,
+                COUNT(*) as count
+             FROM schedules WHERE start_time >= ? AND start_time < ?
+             GROUP BY period`,
+            [mondayStr, endDate]
+        );
+
+        // 优先级统计
+        const [byPriority] = await pool.query(
+            `SELECT priority, COUNT(*) as count
+             FROM schedules WHERE start_time >= ? AND start_time < ?
+             GROUP BY priority`,
+            [mondayStr, endDate]
+        );
+
+        // 24小时分布
+        const [hourlyRows] = await pool.query(
+            `SELECT HOUR(start_time) as hour, COUNT(*) as count
+             FROM schedules WHERE start_time >= ? AND start_time < ?
+             GROUP BY HOUR(start_time)`,
+            [mondayStr, endDate]
+        );
+        const hourlyDistribution = Array(24).fill(0);
+        hourlyRows.forEach(r => { hourlyDistribution[r.hour] = r.count; });
+
+        const weekEnd = new Date(monday);
+        weekEnd.setDate(monday.getDate() + 6);
+
+        res.json({
+            weekLabel: `${monday.getFullYear()}年${monday.getMonth() + 1}月${monday.getDate()}日 - ${weekEnd.getFullYear()}年${weekEnd.getMonth() + 1}月${weekEnd.getDate()}日`,
+            totalSchedules: overview[0].total || 0,
+            completedCount: overview[0].completedCount || 0,
+            cancelledCount,
+            totalMinutes: overview[0].totalMinutes || 0,
+            byCategory,
+            byDay: byDayWithLabels,
+            byEnergy,
+            byPeriod,
+            byPriority,
+            hourlyDistribution
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 周报 Excel 导出
+app.get('/api/schedules/weekly-export', async (req, res) => {
+    try {
+        const startDate = req.query.startDate || formatDateLocal(new Date());
+        const { monday, sunday } = getWeekRange(startDate);
+        const mondayStr = formatDateLocal(monday);
+        const endDate = formatDateLocal(sunday);
+
+        // 查询该周所有日程（安全查询，兼容没有 cancel_reason 列的情况）
+        let schedules;
+        try {
+            [schedules] = await pool.query(
+                `SELECT title, category, start_time, end_time, priority, urgency,
+                        energy_level, completed, cancel_reason
+                 FROM schedules WHERE start_time >= ? AND start_time < ?
+                 ORDER BY start_time`,
+                [mondayStr, endDate]
+            );
+        } catch (e) {
+            [schedules] = await pool.query(
+                `SELECT title, category, start_time, end_time, priority, urgency,
+                        energy_level, completed
+                 FROM schedules WHERE start_time >= ? AND start_time < ?
+                 ORDER BY start_time`,
+                [mondayStr, endDate]
+            );
+        }
+
+        const workbook = new ExcelJS.Workbook();
+        workbook.creator = 'MIMO TODO';
+        workbook.created = new Date();
+
+        // Sheet 1: 周报概览
+        const ws1 = workbook.addWorksheet('周报概览');
+        const weekEnd = new Date(monday);
+        weekEnd.setDate(monday.getDate() + 6);
+        const totalMinutes = schedules.reduce((sum, s) => {
+            return sum + (new Date(s.end_time) - new Date(s.start_time)) / 60000;
+        }, 0);
+        const completedCount = schedules.filter(s => s.completed).length;
+        const cancelledCount = schedules.filter(s => s.cancel_reason || s.cancelled_at).length;
+
+        ws1.columns = [
+            { header: '项目', key: 'label', width: 20 },
+            { header: '数据', key: 'value', width: 30 }
+        ];
+        ws1.getRow(1).font = { bold: true, size: 12 };
+        ws1.addRow({ label: '周报周期', value: `${monday.getFullYear()}年${monday.getMonth()+1}月${monday.getDate()}日 - ${weekEnd.getFullYear()}年${weekEnd.getMonth()+1}月${weekEnd.getDate()}日` });
+        ws1.addRow({ label: '总日程数', value: schedules.length });
+        ws1.addRow({ label: '已完成', value: completedCount });
+        ws1.addRow({ label: '已取消', value: cancelledCount });
+        ws1.addRow({ label: '总时长(分钟)', value: Math.round(totalMinutes) });
+        ws1.addRow({ label: '总时长(小时)', value: (totalMinutes / 60).toFixed(1) });
+        ws1.addRow({ label: '完成率', value: schedules.length > 0 ? (completedCount / schedules.length * 100).toFixed(1) + '%' : '0%' });
+
+        // Sheet 2: 每日明细
+        const ws2 = workbook.addWorksheet('每日明细');
+        ws2.columns = [
+            { header: '日期', key: 'date', width: 14 },
+            { header: '时间段', key: 'time', width: 16 },
+            { header: '日程名称', key: 'title', width: 30 },
+            { header: '分类', key: 'category', width: 10 },
+            { header: '优先级', key: 'priority', width: 10 },
+            { header: '精力等级', key: 'energy', width: 10 },
+            { header: '状态', key: 'status', width: 10 }
+        ];
+        ws2.getRow(1).font = { bold: true, size: 12 };
+        const catMap = { work: '工作', eating: '吃饭', exercise: '运动', study: '学习' };
+        const priMap = { high: '高', medium: '中', low: '低' };
+        const enMap = { high: '高', medium: '中', low: '低' };
+        schedules.forEach(s => {
+            const st = new Date(s.start_time);
+            const et = new Date(s.end_time);
+            const status = (s.cancel_reason || s.cancelled_at) ? '已取消' : s.completed ? '已完成' : '进行中';
+            ws2.addRow({
+                date: `${st.getFullYear()}-${String(st.getMonth()+1).padStart(2,'0')}-${String(st.getDate()).padStart(2,'0')}`,
+                time: `${String(st.getHours()).padStart(2,'0')}:${String(st.getMinutes()).padStart(2,'0')}-${String(et.getHours()).padStart(2,'0')}:${String(et.getMinutes()).padStart(2,'0')}`,
+                title: s.title,
+                category: catMap[s.category] || s.category,
+                priority: priMap[s.priority] || s.priority,
+                energy: enMap[s.energy_level] || s.energy_level,
+                status
+            });
+        });
+
+        // Sheet 3: 分类统计
+        const ws3 = workbook.addWorksheet('分类统计');
+        ws3.columns = [
+            { header: '分类', key: 'category', width: 12 },
+            { header: '数量', key: 'count', width: 10 },
+            { header: '总时长(分钟)', key: 'minutes', width: 16 },
+            { header: '占比', key: 'pct', width: 10 }
+        ];
+        ws3.getRow(1).font = { bold: true, size: 12 };
+        const totalMin = totalMinutes || 1;
+        const catStats = {};
+        schedules.forEach(s => {
+            if (!catStats[s.category]) catStats[s.category] = { count: 0, minutes: 0 };
+            catStats[s.category].count++;
+            catStats[s.category].minutes += (new Date(s.end_time) - new Date(s.start_time)) / 60000;
+        });
+        Object.entries(catStats).forEach(([cat, data]) => {
+            ws3.addRow({
+                category: catMap[cat] || cat,
+                count: data.count,
+                minutes: Math.round(data.minutes),
+                pct: (data.minutes / totalMin * 100).toFixed(1) + '%'
+            });
+        });
+
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="weekly-report-${startDate}.xlsx"`);
+        await workbook.xlsx.write(res);
+        res.end();
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ========================================
 // 天气 API 代理
 // ========================================
 app.get('/api/weather', async (req, res) => {
@@ -523,7 +771,7 @@ app.get('/api/weather/forecast', async (req, res) => {
             const { icon, isBadWeather } = mapWeatherCode(avgCode, avgTemp);
             const d = new Date(dateStr);
             const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-            const label = i === 0 ? '今天' : i === 1 ? '明天' : `${d.getMonth() + 1}/${d.getDate()} ${weekdays[d.getDay()]}`;
+            const label = i === 0 ? '今天' : i === 1 ? '明天' : `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${weekdays[d.getDay()]}`;
             return { date: dateStr, label, temp: avgTemp, maxTemp, minTemp, condition: avgDesc, icon, isBadWeather };
         });
 
@@ -549,17 +797,20 @@ setInterval(() => {
     }
 }, 5 * 60 * 1000);
 
-const SYSTEM_PROMPT = `你是一个智能日程助手。用户会用自然语言描述日程需求，你需要解析并返回结构化的日程数据。
+// SYSTEM_PROMPT 不再在启动时固化当前时间，改为每次请求动态注入
+const SYSTEM_PROMPT_TEMPLATE = `你是一个智能日程助手。用户会用自然语言描述日程需求，你可以帮用户创建日程，也可以和用户交互确认细节。
 
-当前时间：${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}
+当前时间：{CURRENT_TIME}
 
-## 输出规则
+## 两种输出模式
 
-返回一个 JSON 数组，每个元素代表一个日程，格式如下：
+### 模式A：信息充分，直接创建日程
+当用户描述中包含足够的信息（至少有大致的日期/时间和事项内容）时，用此模式。
+先用1-2句话简要说明你理解了什么，然后附上 JSON：
 \`\`\`json
 [{
   "title": "日程标题（简洁明确）",
-  "description": "日程描述（可选，没有则为空字符串）",
+  "description": "日程描述（可选）",
   "start": "2026-05-03T14:00",
   "end": "2026-05-03T16:00",
   "priority": "low|medium|high",
@@ -570,6 +821,15 @@ const SYSTEM_PROMPT = `你是一个智能日程助手。用户会用自然语言
 }]
 \`\`\`
 
+### 模式B：信息不足，交互询问
+当用户描述模糊、缺少关键信息、或有多种理解方式时，用此模式。
+**不要猜测**，而是用自然语言向用户询问需要确认的事项。例如：
+- "你提到要安排会议，请问具体是哪一天？几点到几点？"
+- "这周有3个可能的时间段，你倾向哪个？"
+- "你希望每次复习多长时间？需要我帮你安排每天的固定时间段吗？"
+
+直接用自然语言回复即可，**不要输出 JSON**。
+
 ## 时间解析规则
 
 - "明天下午2点" → 根据当前时间计算具体日期和时间
@@ -579,6 +839,7 @@ const SYSTEM_PROMPT = `你是一个智能日程助手。用户会用自然语言
 - "每天晚上8点" → 创建今天起的一个日程
 - 如果只给了开始时间没给结束时间，默认持续2小时
 - 所有时间使用 24 小时制，格式为 YYYY-MM-DDTHH:MM
+- 支持一次请求包含多个不同日期/类型的日程
 
 ## 优先级和紧急程度推断
 
@@ -612,11 +873,10 @@ const SYSTEM_PROMPT = `你是一个智能日程助手。用户会用自然语言
 
 ## 其他规则
 
-- 如果用户描述模糊，基于常识合理推断
 - 一次可以创建多个日程（如"帮我安排下周的会议"）
-- 回复时先简要说明你理解了什么，然后附上 JSON
 - JSON 必须包裹在 \`\`\`json 和 \`\`\` 代码块中
-- title 不能为空，必须是用户能理解的中文标题`;
+- title 不能为空，必须是用户能理解的中文标题
+- 如果用户只是在聊天或提问，正常对话即可，不需要输出 JSON`;
 
 // 获取或创建会话
 function getSession(sessionId) {
@@ -648,14 +908,18 @@ app.post('/api/ai/create', async (req, res) => {
             session.messages = session.messages.slice(-12);
         }
 
+        // 每次请求动态注入当前时间
+        const currentTime = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+        const systemPrompt = SYSTEM_PROMPT_TEMPLATE.replace('{CURRENT_TIME}', currentTime);
+
         const payload = {
             model: 'mimo-v2.5-pro',
             messages: [
-                { role: 'system', content: SYSTEM_PROMPT },
+                { role: 'system', content: systemPrompt },
                 ...session.messages
             ],
-            temperature: 0.3,
-            max_tokens: 2048,
+            temperature: 0.5,
+            max_tokens: 4096,
         };
 
         const aiRes = await fetch('https://token-plan-cn.xiaomimimo.com/v1/chat/completions', {
@@ -665,12 +929,15 @@ app.post('/api/ai/create', async (req, res) => {
                 'Authorization': `Bearer ${apiKey}`,
             },
             body: JSON.stringify(payload),
+            signal: AbortSignal.timeout(60000),
         });
 
         if (!aiRes.ok) {
             const errText = await aiRes.text();
             console.error('AI API 错误:', aiRes.status, errText);
-            return res.status(502).json({ error: 'AI 服务暂时不可用，请稍后重试' });
+            let errMsg = 'AI 服务暂时不可用，请稍后重试';
+            try { const parsed = JSON.parse(errText); errMsg = parsed.error?.message || errMsg; } catch {}
+            return res.status(502).json({ error: errMsg });
         }
 
         const aiData = await aiRes.json();
@@ -689,6 +956,9 @@ app.post('/api/ai/create', async (req, res) => {
         });
     } catch (err) {
         console.error('AI 创建失败:', err);
+        if (err.name === 'TimeoutError' || err.code === 'ABORT_ERR') {
+            return res.status(504).json({ error: 'AI 响应超时，请稍后重试' });
+        }
         res.status(500).json({ error: '服务器错误: ' + err.message });
     }
 });

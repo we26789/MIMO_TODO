@@ -183,7 +183,7 @@ async function loadSchedules() {
 function updateClock() {
     const now = new Date();
     const time = now.toLocaleTimeString('zh-CN', { hour12: false });
-    const date = now.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'short' });
+    const date = now.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' });
     document.getElementById('currentTime').textContent = `${date} ${time}`;
 }
 
@@ -193,8 +193,8 @@ function switchPage(page) {
     document.getElementById(`page-${page}`).classList.add('active');
     document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
     document.querySelector(`[data-page="${page}"]`).classList.add('active');
-    const titles = { dashboard: '仪表盘', create: '新建日程', schedules: '查看日程', intent: '意图视图', energy: '能量视图', weather: '天气视图' };
-    const breadcrumbs = { dashboard: '首页 / 仪表盘', create: '首页 / 新建日程', schedules: '首页 / 查看日程', intent: '首页 / 意图视图', energy: '首页 / 能量视图', weather: '首页 / 天气视图' };
+    const titles = { dashboard: '仪表盘', create: '新建日程', schedules: '查看日程', intent: '意图视图', energy: '能量视图', weather: '天气视图', weekly: '周报' };
+    const breadcrumbs = { dashboard: '首页 / 仪表盘', create: '首页 / 新建日程', schedules: '首页 / 查看日程', intent: '首页 / 意图视图', energy: '首页 / 能量视图', weather: '首页 / 天气视图', weekly: '首页 / 周报' };
     document.getElementById('pageTitle').textContent = titles[page];
     document.getElementById('breadcrumb').textContent = breadcrumbs[page];
     if (page === 'dashboard') refreshDashboard();
@@ -202,6 +202,7 @@ function switchPage(page) {
     if (page === 'intent') renderIntentView();
     if (page === 'energy') renderEnergyView();
     if (page === 'weather') renderWeatherView();
+    if (page === 'weekly') renderWeeklyView();
     closeMobileMenu();
 }
 
@@ -345,26 +346,17 @@ async function handleManualSubmit(e) {
 }
 
 // 智能排序评分
-function getSmartScore(schedule) {
-    const now = new Date();
+function getSmartScore(schedule, now) {
     const start = new Date(schedule.start);
     const end = new Date(schedule.end);
-    const msUntilStart = start.getTime() - now.getTime();
-    const totalDuration = end.getTime() - start.getTime();
-    let timeScore;
-    if (msUntilStart < 0) {
-        const msAfterEnd = now.getTime() - end.getTime();
-        timeScore = msAfterEnd > 0 ? 95 : 80 + 15 * (1 - msAfterEnd / totalDuration);
-    } else {
-        const hoursLeft = msUntilStart / (1000 * 60 * 60);
-        timeScore = hoursLeft <= 0 ? 100 : hoursLeft <= 1 ? 90 : hoursLeft <= 2 ? 80
-            : hoursLeft <= 6 ? 65 : hoursLeft <= 24 ? 45 : hoursLeft <= 72 ? 25 : 10;
-    }
-    const priorityMap = { high: 100, medium: 60, low: 20 };
-    const urgencyMap = { critical: 100, urgent: 70, normal: 30 };
-    const completedBonus = schedule.completed ? -200 : 0;
-    return timeScore * 0.5 + (priorityMap[schedule.priority] || 20) * 0.25
-        + (urgencyMap[schedule.urgency] || 30) * 0.25 + completedBonus;
+    const priorityVal = { high: 0, medium: 1, low: 2 }[schedule.priority] ?? 2;
+    const urgencyVal = { critical: 0, urgent: 1, normal: 2 }[schedule.urgency] ?? 2;
+    const isOngoing = start <= now && end >= now;
+    const isPast = end < now;
+
+    if (isOngoing) return 0;
+    if (isPast) return 1e12 - end.getTime();
+    return start.getTime() + priorityVal * 60000 + urgencyVal * 30000;
 }
 
 function getUrgencyLabel(urgency) {
@@ -400,7 +392,12 @@ function renderSchedules() {
         return;
     }
 
-    list.sort((a, b) => getSmartScore(b) - getSmartScore(a));
+    const now = new Date();
+    const incomplete = list.filter(s => !s.completed && !s.cancel_reason);
+    const completed = list.filter(s => s.completed || s.cancel_reason);
+    incomplete.sort((a, b) => getSmartScore(a, now) - getSmartScore(b, now));
+    completed.sort((a, b) => getSmartScore(a, now) - getSmartScore(b, now));
+    list = [...incomplete, ...completed];
 
     container.innerHTML = list.map(s => {
         const urgencyClass = s.urgency || 'normal';
@@ -842,7 +839,7 @@ function formatCompletedTime(dateStr) {
     const min = String(d.getMinutes()).padStart(2, '0');
     const isToday = d.toDateString() === now.toDateString();
     if (isToday) return `完成于 今天 ${h}:${min}`;
-    return `完成于 ${month}/${day} ${h}:${min}`;
+    return `完成于 ${d.getFullYear()}年${month}月${day}日 ${h}:${min}`;
 }
 
 // 格式化时间显示
@@ -862,7 +859,7 @@ function formatTimeDisplay(start, end) {
     else if (isTomorrow) date = '明天';
     else {
         const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-        date = `${s.getMonth() + 1}月${s.getDate()}日 ${weekdays[s.getDay()]}`;
+        date = `${s.getFullYear()}年${s.getMonth() + 1}月${s.getDate()}日 ${weekdays[s.getDay()]}`;
     }
     return { time, date };
 }
@@ -887,9 +884,16 @@ document.addEventListener('keydown', (e) => {
 let aiSessionId = 'session_' + Date.now().toString(36);
 let aiProcessing = false;
 
+function autoResizeTextarea(el) {
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 100) + 'px';
+}
+
 function sendAiExample(btn) {
     const text = btn.textContent;
-    document.getElementById('aiInput').value = text;
+    const input = document.getElementById('aiInput');
+    input.value = text;
+    autoResizeTextarea(input);
     sendAiMessage();
 }
 
@@ -901,6 +905,7 @@ async function sendAiMessage() {
 
     aiProcessing = true;
     input.value = '';
+    input.style.height = 'auto';
     const sendBtn = document.getElementById('aiSendBtn');
     sendBtn.disabled = true;
 
@@ -914,6 +919,7 @@ async function sendAiMessage() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ message, sessionId: aiSessionId }),
+            signal: AbortSignal.timeout(90000),
         });
         const data = await res.json();
 
@@ -935,7 +941,8 @@ async function sendAiMessage() {
     } catch (err) {
         const loadingEl = document.getElementById(loadingId);
         if (loadingEl) loadingEl.remove();
-        renderAiMessage('assistant', `<span class="ai-error">网络错误，请检查连接后重试</span>`);
+        const msg = err.name === 'TimeoutError' ? '请求超时，请稍后重试' : '网络错误，请检查连接后重试';
+        renderAiMessage('assistant', `<span class="ai-error">${msg}</span>`);
     } finally {
         aiProcessing = false;
         sendBtn.disabled = false;
@@ -963,9 +970,25 @@ function renderAiMessage(role, html, id) {
 }
 
 function formatAiReply(text) {
-    return escapeHtml(text)
-        .replace(/\n/g, '<br>')
-        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    let html = escapeHtml(text);
+    // 有序列表
+    html = html.replace(/(?:^|\n)((?:\d+\.\s+.+\n?)+)/g, (match, list) => {
+        const items = list.trim().split('\n').map(line => `<li>${line.replace(/^\d+\.\s+/, '')}</li>`).join('');
+        return `<ol style="margin:4px 0;padding-left:20px">${items}</ol>`;
+    });
+    // 无序列表
+    html = html.replace(/(?:^|\n)((?:[-*]\s+.+\n?)+)/g, (match, list) => {
+        const items = list.trim().split('\n').map(line => `<li>${line.replace(/^[-*]\s+/, '')}</li>`).join('');
+        return `<ul style="margin:4px 0;padding-left:20px">${items}</ul>`;
+    });
+    // 加粗
+    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    // 换行（避免列表后的多余换行）
+    html = html.replace(/\n/g, '<br>');
+    // 清理连续 <br> 在列表标签附近
+    html = html.replace(/<\/(?:ol|ul)><br>/g, '</$1>');
+    html = html.replace(/<br><(?:ol|ul)/g, '<$1');
+    return html;
 }
 
 function renderAiSchedulePreview(schedules) {
@@ -1602,7 +1625,7 @@ async function renderIntentView() {
             return { category: cat, count: catSchedules.length, totalMinutes };
         }).filter(c => c.count > 0 || CATEGORY_LABELS[c.category]);
 
-        const totalMinutes = allCatData.reduce((sum, c) => sum + (c.totalMinutes || 0), 0);
+        const totalMinutes = allCatData.reduce((sum, c) => sum + Number(c.totalMinutes || 0), 0);
 
         // 渲染 SVG 饼图
         const pieContainer = document.getElementById('intentPie');
@@ -1880,6 +1903,283 @@ function changeWeatherCity() {
     localStorage.setItem('mimo_weather_city', city);
     renderWeatherView();
     showToast('已切换到 ' + city);
+}
+
+// ========================================
+// 周报
+// ========================================
+let weeklyStartDate = getMonday(new Date());
+
+function getMonday(d) {
+    const date = new Date(d);
+    const day = date.getDay() || 7;
+    date.setDate(date.getDate() - day + 1);
+    date.setHours(0, 0, 0, 0);
+    return date;
+}
+
+function weeklyPrevWeek() {
+    weeklyStartDate.setDate(weeklyStartDate.getDate() - 7);
+    renderWeeklyView();
+}
+
+function weeklyNextWeek() {
+    weeklyStartDate.setDate(weeklyStartDate.getDate() + 7);
+    renderWeeklyView();
+}
+
+function weeklyThisWeek() {
+    weeklyStartDate = getMonday(new Date());
+    renderWeeklyView();
+}
+
+async function renderWeeklyView() {
+    const d = weeklyStartDate;
+    const weekEnd = new Date(d);
+    weekEnd.setDate(d.getDate() + 6);
+    document.getElementById('weeklyDateLabel').textContent =
+        `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 - ${weekEnd.getFullYear()}年${weekEnd.getMonth() + 1}月${weekEnd.getDate()}日`;
+
+    try {
+        const startDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const res = await fetch(`/api/schedules/weekly-report?startDate=${startDateStr}`);
+        const data = await res.json();
+
+        // 概览卡片
+        const overviewEl = document.getElementById('weeklyOverview');
+        const hours = Math.floor((data.totalMinutes || 0) / 60);
+        const mins = (data.totalMinutes || 0) % 60;
+        const total = data.totalSchedules || 0;
+        const completed = data.completedCount || 0;
+        const cancelled = data.cancelledCount || 0;
+        const completionRate = total > 0 ? (completed / total * 100).toFixed(0) : 0;
+        overviewEl.innerHTML = `
+            <div class="card weekly-stat-card">
+                <div class="weekly-stat-value">${total}</div>
+                <div class="weekly-stat-label">总日程</div>
+            </div>
+            <div class="card weekly-stat-card">
+                <div class="weekly-stat-value" style="color:var(--green)">${completed}</div>
+                <div class="weekly-stat-label">已完成 ${completionRate}%</div>
+            </div>
+            <div class="card weekly-stat-card">
+                <div class="weekly-stat-value" style="color:#ef4444">${cancelled}</div>
+                <div class="weekly-stat-label">已取消</div>
+            </div>
+            <div class="card weekly-stat-card">
+                <div class="weekly-stat-value" style="color:var(--orange)">${hours}h${mins}m</div>
+                <div class="weekly-stat-label">总时长</div>
+            </div>`;
+
+        // 分类饼图
+        const catColors = { work: '#ff8c32', eating: '#34d399', exercise: '#3b82f6', study: '#8b5cf6' };
+        const catLabels = { work: '工作', eating: '吃饭', exercise: '运动', study: '学习' };
+        const pieData = data.byCategory.filter(c => c.totalMinutes > 0);
+        const pieTotal = pieData.reduce((s, c) => s + Number(c.totalMinutes || 0), 0) || 1;
+        const pieContainer = document.getElementById('weeklyPie');
+        const legendContainer = document.getElementById('weeklyPieLegend');
+
+        if (pieData.length === 0) {
+            pieContainer.innerHTML = '<div class="intent-bar-empty">本周暂无数据</div>';
+            legendContainer.innerHTML = '';
+        } else {
+            const size = 180, cx = 90, cy = 90, r = 70;
+            let cumAngle = -90;
+            const slices = pieData.map(c => {
+                const pct = c.totalMinutes / pieTotal;
+                const angle = pct * 360;
+                const startAngle = cumAngle;
+                cumAngle += angle;
+                const endAngle = cumAngle;
+                const largeArc = angle > 180 ? 1 : 0;
+                const sr = (startAngle * Math.PI) / 180;
+                const er = (endAngle * Math.PI) / 180;
+                const color = catColors[c.category] || '#666';
+                return `<path d="M${cx},${cy} L${cx + r * Math.cos(sr)},${cy + r * Math.sin(sr)} A${r},${r} 0 ${largeArc},1 ${cx + r * Math.cos(er)},${cy + r * Math.sin(er)} Z" fill="${color}" opacity="0.85"><title>${catLabels[c.category] || c.category}: ${pct.toFixed(1) * 100}%</title></path>`;
+            });
+            pieContainer.innerHTML = `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}">${slices.join('')}</svg>`;
+            legendContainer.innerHTML = pieData.map(c => {
+                const pct = (c.totalMinutes / pieTotal * 100).toFixed(1);
+                const h = Math.floor(c.totalMinutes / 60);
+                const m = c.totalMinutes % 60;
+                const color = catColors[c.category] || '#666';
+                return `<div class="intent-legend-item"><span class="intent-legend-dot" style="background:${color}"></span>${catLabels[c.category] || c.category} ${pct}% (${h}h${m}m)</div>`;
+            }).join('');
+        }
+
+        // 每日时间横条图
+        const dayBarsEl = document.getElementById('weeklyDayBars');
+        const dayLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+        const maxDayMinutes = Math.max(...data.byDay.map(d => d.totalMinutes || 0), 1);
+        // 补全7天数据
+        const fullDays = dayLabels.map((label, i) => {
+            const found = data.byDay.find(d => d.dayLabel === label);
+            return { dayLabel: label, totalMinutes: found ? (found.totalMinutes || 0) : 0, count: found ? found.count : 0 };
+        });
+        dayBarsEl.innerHTML = fullDays.map(d => {
+            const pct = (d.totalMinutes / maxDayMinutes * 100).toFixed(0);
+            const h = Math.floor(d.totalMinutes / 60);
+            const m = d.totalMinutes % 60;
+            return `<div class="weekly-day-bar-row">
+                <span class="weekly-day-label">${d.dayLabel}</span>
+                <div class="weekly-day-bar"><div class="weekly-day-bar-fill" style="width:${pct}%"></div></div>
+                <span class="weekly-day-value">${d.totalMinutes > 0 ? h + 'h' + m + 'm' : '-'}</span>
+            </div>`;
+        }).join('');
+
+        // 精力等级
+        const energyEl = document.getElementById('weeklyEnergy');
+        const energyLabels = { high: '高精力', medium: '中精力', low: '低精力' };
+        const energyColors = { high: '#34d399', medium: '#ff8c32', low: '#6b7280' };
+        const energyTotal = data.byEnergy.reduce((s, e) => s + Number(e.count || 0), 0) || 1;
+        energyEl.innerHTML = `<div class="weekly-sub-title">精力等级分布</div>` +
+            data.byEnergy.map(e => {
+                const pct = (e.count / energyTotal * 100).toFixed(0);
+                return `<div class="weekly-dist-row">
+                    <span class="weekly-dist-label"><span class="weekly-dist-dot" style="background:${energyColors[e.energy_level] || '#666'}"></span>${energyLabels[e.energy_level] || e.energy_level}</span>
+                    <div class="weekly-dist-bar"><div class="weekly-dist-bar-fill" style="width:${pct}%;background:${energyColors[e.energy_level] || '#666'}"></div></div>
+                    <span class="weekly-dist-value">${e.count}个 (${pct}%)</span>
+                </div>`;
+            }).join('');
+
+        // 时段分布
+        const periodEl = document.getElementById('weeklyPeriod');
+        const periodLabels = { morning: '早晨 6-9', am: '上午 9-12', pm: '下午 12-18', evening: '晚间 18-22', night: '深夜 22-6' };
+        const periodColors = { morning: '#ff8c32', am: '#3b82f6', pm: '#34d399', evening: '#8b5cf6', night: '#6b7280' };
+        const periodTotal = data.byPeriod.reduce((s, p) => s + Number(p.count || 0), 0) || 1;
+        periodEl.innerHTML = `<div class="weekly-sub-title">时段分布</div>` +
+            data.byPeriod.map(p => {
+                const pct = (p.count / periodTotal * 100).toFixed(0);
+                return `<div class="weekly-dist-row">
+                    <span class="weekly-dist-label"><span class="weekly-dist-dot" style="background:${periodColors[p.period] || '#666'}"></span>${periodLabels[p.period] || p.period}</span>
+                    <div class="weekly-dist-bar"><div class="weekly-dist-bar-fill" style="width:${pct}%;background:${periodColors[p.period] || '#666'}"></div></div>
+                    <span class="weekly-dist-value">${p.count}个 (${pct}%)</span>
+                </div>`;
+            }).join('');
+
+        // 24小时分布柱状图
+        const hourlyEl = document.getElementById('weeklyHourly');
+        const maxHourly = Math.max(...data.hourlyDistribution, 1);
+        hourlyEl.innerHTML = `<div class="weekly-hourly-chart">` +
+            data.hourlyDistribution.map((count, h) => {
+                const pct = (count / maxHourly * 100).toFixed(0);
+                return `<div class="weekly-hourly-col">
+                    <div class="weekly-hourly-bar" style="height:${pct}%"></div>
+                    <div class="weekly-hourly-label">${h}</div>
+                </div>`;
+            }).join('') + `</div>`;
+
+        // 智能建议
+        const adviceEl = document.getElementById('weeklyAdvice');
+        adviceEl.innerHTML = generateWeeklyAdvice(data).map(a =>
+            `<div class="weekly-advice-item">
+                <span class="weekly-advice-icon">${a.icon}</span>
+                <div class="weekly-advice-content">
+                    <div class="weekly-advice-title">${a.title}</div>
+                    <div class="weekly-advice-desc">${a.desc}</div>
+                </div>
+            </div>`
+        ).join('');
+
+    } catch (err) {
+        console.error('加载周报失败:', err);
+    }
+}
+
+function generateWeeklyAdvice(data) {
+    const advice = [];
+    const total = data.totalSchedules || 0;
+    const completed = data.completedCount || 0;
+    const cancelled = data.cancelledCount || 0;
+    const totalMin = data.totalMinutes || 0;
+
+    // 完成率分析
+    if (total > 0) {
+        const rate = completed / total;
+        if (rate >= 0.8) {
+            advice.push({ icon: '✅', title: '完成率优秀', desc: `本周完成率 ${(rate * 100).toFixed(0)}%，表现出色！保持高效执行力，适当挑战更高目标。` });
+        } else if (rate >= 0.6) {
+            advice.push({ icon: '💡', title: '完成率尚可', desc: `本周完成率 ${(rate * 100).toFixed(0)}%。建议将大任务拆分为更小的子任务，降低完成门槛，逐步提升执行力。` });
+        } else if (total > 0) {
+            advice.push({ icon: '⚠️', title: '完成率偏低', desc: `本周完成率仅 ${(rate * 100).toFixed(0)}%。建议重新评估任务量，避免过度安排。可使用番茄工作法提高专注度。` });
+        }
+    }
+
+    // 取消率分析
+    if (total > 0 && cancelled > 0) {
+        const cancelRate = cancelled / total;
+        if (cancelRate > 0.15) {
+            advice.push({ icon: '📋', title: '取消率较高', desc: `本周取消了 ${cancelled} 个日程 (${(cancelRate * 100).toFixed(0)}%)。建议提前预留缓冲时间，减少临时变动对计划的影响。` });
+        }
+    }
+
+    // 时间分配分析
+    const workCat = data.byCategory.find(c => c.category === 'work');
+    const studyCat = data.byCategory.find(c => c.category === 'study');
+    const exerciseCat = data.byCategory.find(c => c.category === 'exercise');
+    const workMin = workCat ? workCat.totalMinutes : 0;
+    const studyMin = studyCat ? studyCat.totalMinutes : 0;
+    const exerciseMin = exerciseCat ? exerciseCat.totalMinutes : 0;
+
+    if (totalMin > 0 && workMin / totalMin > 0.65) {
+        advice.push({ icon: '⚖️', title: '工作占比过高', desc: `工作时间占总时长 ${(workMin / totalMin * 100).toFixed(0)}%。长期高强度工作易导致倦怠，建议适当增加学习和运动时间，保持身心健康平衡。` });
+    }
+
+    if (totalMin > 0 && studyMin / totalMin < 0.1 && studyMin === 0) {
+        advice.push({ icon: '📚', title: '建议增加学习', desc: '本周没有学习安排。建议每周至少安排 2-3 次学习时间，持续提升个人能力。即使每天 30 分钟也能带来显著进步。' });
+    }
+
+    // 运动频率
+    if (exerciseMin === 0 && total > 0) {
+        advice.push({ icon: '🏃', title: '建议增加运动', desc: '本周没有运动安排。研究表明每周 150 分钟中等强度运动可显著提升精力和工作效率。建议安排散步、跑步或健身。' });
+    } else if (exerciseMin > 0 && exerciseMin < 90) {
+        advice.push({ icon: '🏃', title: '运动量偏少', desc: `本周运动总时长 ${exerciseMin} 分钟，低于推荐的每周 150 分钟。适当增加运动频率有助于提升精力水平和工作效率。` });
+    }
+
+    // 深夜任务分析
+    const nightPeriod = data.byPeriod.find(p => p.period === 'night');
+    if (nightPeriod && nightPeriod.count > 3) {
+        advice.push({ icon: '🌙', title: '深夜安排较多', desc: `本周有 ${nightPeriod.count} 个深夜任务。频繁熬夜会影响次日精力和长期健康。建议将非紧急任务调整到白天，保证充足睡眠。` });
+    }
+
+    // 精力匹配分析
+    const highEnergy = data.byEnergy.find(e => e.energy_level === 'high');
+    const morningPeriod = data.byPeriod.find(p => p.period === 'morning');
+    if (highEnergy && morningPeriod && highEnergy.count > morningPeriod.count * 2) {
+        advice.push({ icon: '⚡', title: '精力利用建议', desc: '高精力任务较多但早晨安排较少。建议将重要、高认知负荷的任务安排在上午 (9-12 点)，这是大多数人的精力高峰期。' });
+    }
+
+    // 默认建议
+    if (advice.length === 0) {
+        if (total === 0) {
+            advice.push({ icon: '📝', title: '开始记录', desc: '本周还没有日程记录。建议创建一些日程来跟踪你的时间分配，周报将为你提供更有价值的分析。' });
+        } else {
+            advice.push({ icon: '👍', title: '整体表现良好', desc: '本周时间分配较为均衡，继续保持！定期查看周报可以帮助你持续优化时间管理策略。' });
+        }
+    }
+
+    return advice;
+}
+
+async function downloadWeeklyReport() {
+    const d = weeklyStartDate;
+    const startDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    try {
+        const res = await fetch(`/api/schedules/weekly-export?startDate=${startDateStr}`);
+        if (!res.ok) throw new Error('下载失败');
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `周报-${startDateStr}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showToast('周报已下载');
+    } catch (err) {
+        showToast('下载失败: ' + err.message, 'error');
+    }
 }
 
 // ========================================
