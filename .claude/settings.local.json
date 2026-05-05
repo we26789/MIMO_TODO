@@ -8,7 +8,12 @@
       "Read(//c/Users/E/Desktop/cursor/**)",
       "Bash(mysql -u root -p123456 mimo_todo -e \"ALTER TABLE schedules ADD COLUMN completed_at DATETIME DEFAULT NULL AFTER completed;\")",
       "Bash(node -e \"const mysql=require\\('mysql2/promise'\\);\\(async\\(\\)=>{const c=await mysql.createConnection\\({host:'localhost',user:'root',password:'123456',database:'mimo_todo'}\\);await c.query\\('ALTER TABLE schedules ADD COLUMN completed_at DATETIME DEFAULT NULL AFTER completed'\\);console.log\\('completed_at 字段添加成功'\\);await c.end\\(\\);}\\)\\(\\)\")",
-      "Bash(node -e \"const mysql=require\\('mysql2/promise'\\);\\(async\\(\\)=>{const c=await mysql.createConnection\\({host:'localhost',user:'root',password:'123456',database:'mimo_todo'}\\);await c.query\\('ALTER TABLE schedules ADD COLUMN achievements JSON DEFAULT NULL AFTER completed_at'\\);console.log\\('achievements 字段添加成功'\\);await c.end\\(\\);}\\)\\(\\)\")"
+      "Bash(node -e \"const mysql=require\\('mysql2/promise'\\);\\(async\\(\\)=>{const c=await mysql.createConnection\\({host:'localhost',user:'root',password:'123456',database:'mimo_todo'}\\);await c.query\\('ALTER TABLE schedules ADD COLUMN achievements JSON DEFAULT NULL AFTER completed_at'\\);console.log\\('achievements 字段添加成功'\\);await c.end\\(\\);}\\)\\(\\)\")",
+      "Bash(python3 fix_fetch.py)",
+      "Bash(node -c style.css)",
+      "Bash(curl -s -X POST http://localhost:3000/api/auth/register -H 'Content-Type: application/json' -d '{\"username\":\"testuser\",\"password\":\"test123\",\"nickname\":\"测试用户\"}')",
+      "Bash(node *)",
+      "Bash(curl *)"
     ]
   }
 }

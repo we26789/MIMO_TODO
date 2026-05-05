@@ -33,7 +33,7 @@
     --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
 
     --sidebar-width: 240px;
-    --topbar-height: 64px;
+    --topbar-height: 52px;
 }
 
 *, *::before, *::after {
@@ -117,7 +117,7 @@ body {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 20px;
+    padding: 16px;
     border-bottom: 1px solid var(--border);
 }
 
@@ -146,18 +146,18 @@ body {
 
 .nav-menu {
     flex: 1;
-    padding: 16px 12px;
+    padding: 12px 10px;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 3px;
 }
 
 .nav-item {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 12px 16px;
-    border-radius: 10px;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: 8px;
     color: var(--text-secondary);
     text-decoration: none;
     transition: all 0.3s ease;
@@ -370,7 +370,7 @@ body {
 }
 
 .sidebar-footer {
-    padding: 16px 20px;
+    padding: 12px 16px;
     border-top: 1px solid var(--border);
 }
 
@@ -402,12 +402,14 @@ body {
     margin-left: var(--sidebar-width);
     display: flex;
     flex-direction: column;
+    justify-content: flex-start;
+    overflow: hidden;
 }
 
 /* 顶部栏 */
 .top-bar {
     height: var(--topbar-height);
-    padding: 0 32px;
+    padding: 0 20px;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -487,7 +489,10 @@ body {
 
 .content-area {
     flex: 1;
-    padding: 32px;
+    padding: 0 20px 20px 20px;
+    margin-top: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
 }
 
 /* ========================================
@@ -496,15 +501,17 @@ body {
 .page {
     display: none;
     animation: fadeIn 0.4s ease;
+    position: relative;
 }
 
 .page.active {
     display: block;
+    z-index: 1;
 }
 
 @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(12px); }
-    to { opacity: 1; transform: translateY(0); }
+    from { opacity: 0; }
+    to { opacity: 1; }
 }
 
 /* ========================================
@@ -513,8 +520,8 @@ body {
 .stats-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 20px;
-    margin-bottom: 32px;
+    gap: 16px;
+    margin-bottom: 20px;
     perspective: 1000px;
 }
 
@@ -707,7 +714,7 @@ body {
 }
 
 .card-body {
-    padding: 24px;
+    padding: 16px;
 }
 
 .btn-text {
@@ -729,9 +736,9 @@ body {
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
-    padding: 48px 24px;
-    gap: 16px;
+    justify-content: flex-start;
+    padding: 20px 24px;
+    gap: 12px;
 }
 
 .empty-state svg {
@@ -867,23 +874,23 @@ body {
 
 /* 表单 */
 .form-group {
-    margin-bottom: 20px;
+    margin-bottom: 14px;
 }
 
 .form-label {
     display: block;
     font-size: 0.85rem;
     color: var(--text-secondary);
-    margin-bottom: 8px;
+    margin-bottom: 6px;
     font-weight: 500;
 }
 
 .form-input {
     width: 100%;
-    padding: 12px 16px;
+    padding: 10px 14px;
     background: rgba(255, 255, 255, 0.02);
     border: 1px solid rgba(255, 140, 50, 0.08);
-    border-radius: 10px;
+    border-radius: 8px;
     color: var(--text-primary);
     font-size: 0.9rem;
     font-family: var(--font-sans);
@@ -927,7 +934,7 @@ select.form-input:focus {
 .form-row {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 16px;
+    gap: 12px;
 }
 
 /* 优先级选择 */
@@ -1079,7 +1086,7 @@ select.form-input:focus {
     flex-direction: column;
     align-items: center;
     text-align: center;
-    padding: 40px 20px;
+    padding: 24px 20px;
 }
 
 .smart-icon {
@@ -1201,18 +1208,21 @@ select.form-input:focus {
 .schedules-list {
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    justify-content: flex-start;
+    align-items: stretch;
+    gap: 10px;
+    min-height: 0;
 }
 
 /* 日程项 - 3D 玻璃悬浮 */
 .schedule-item {
     background: linear-gradient(145deg, rgba(15, 12, 25, 0.7), rgba(8, 8, 18, 0.6));
     border: 1px solid rgba(255, 140, 50, 0.06);
-    border-radius: 14px;
-    padding: 20px 24px;
+    border-radius: 12px;
+    padding: 14px 18px;
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 14px;
     transition: all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
     animation: fadeIn 0.3s ease;
     backdrop-filter: blur(16px);
@@ -2632,7 +2642,7 @@ select.form-input:focus {
     }
 
     .content-area {
-        padding: 16px;
+        padding: 0 16px 16px 16px;
     }
 
     .stats-grid {
@@ -3261,7 +3271,7 @@ select.form-input:focus {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-bottom: 24px;
+    margin-bottom: 16px;
     flex-wrap: wrap;
 }
 .weekly-date-label {
@@ -3274,12 +3284,12 @@ select.form-input:focus {
 .weekly-overview {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 16px;
-    margin-bottom: 24px;
+    gap: 12px;
+    margin-bottom: 16px;
 }
 .weekly-stat-card {
     text-align: center;
-    padding: 20px 12px;
+    padding: 14px 10px;
 }
 .weekly-stat-value {
     font-size: 1.8rem;
@@ -4586,8 +4596,8 @@ select.form-input:focus {
 .goals-page-layout {
     display: grid;
     grid-template-columns: 280px 1fr;
-    gap: 20px;
-    height: calc(100vh - 120px);
+    gap: 16px;
+    height: calc(100vh - 84px);
 }
 .goals-list-panel {
     background: var(--glass-bg);
@@ -4601,7 +4611,7 @@ select.form-input:focus {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 16px;
+    padding: 12px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 .goals-panel-header h3 {
@@ -4611,7 +4621,7 @@ select.form-input:focus {
 .goals-page-list {
     flex: 1;
     overflow-y: auto;
-    padding: 8px;
+    padding: 6px;
 }
 .goal-page-item {
     padding: 12px;
@@ -4648,7 +4658,7 @@ select.form-input:focus {
     background: var(--glass-bg);
     border: 1px solid var(--glass-border);
     border-radius: 12px;
-    padding: 24px;
+    padding: 16px;
     overflow-y: auto;
 }
 .goal-detail-empty {
@@ -4659,7 +4669,7 @@ select.form-input:focus {
     color: var(--text-dim);
 }
 .goal-detail-header {
-    margin-bottom: 16px;
+    margin-bottom: 12px;
 }
 .goal-detail-header h3 {
     font-size: 1.3rem;
@@ -4682,7 +4692,7 @@ select.form-input:focus {
     gap: 16px;
     font-size: 0.8rem;
     color: var(--text-dim);
-    margin-bottom: 16px;
+    margin-bottom: 12px;
     flex-wrap: wrap;
 }
 .goal-detail-progress {
@@ -4756,4 +4766,232 @@ select.form-input:focus {
     min-width: 35px;
     text-align: right;
 }
+}
+
+/* ========================================
+   登录/注册页面
+   ======================================== */
+.auth-page {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    background: var(--bg-primary);
+    padding: 20px;
+}
+
+.auth-card {
+    width: 100%;
+    max-width: 400px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    padding: 40px 32px;
+    backdrop-filter: blur(20px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.auth-logo {
+    text-align: center;
+    margin-bottom: 32px;
+}
+
+.auth-logo-icon {
+    width: 60px;
+    height: 60px;
+    margin: 0 auto 16px;
+}
+
+.auth-logo-icon svg {
+    width: 100%;
+    height: 100%;
+}
+
+.auth-title {
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.auth-title .accent {
+    background: linear-gradient(135deg, var(--orange), var(--purple));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.auth-subtitle {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+
+.auth-tabs {
+    display: flex;
+    gap: 0;
+    margin-bottom: 24px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.auth-tab {
+    flex: 1;
+    padding: 10px;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.auth-tab.active {
+    background: rgba(255, 140, 50, 0.15);
+    color: var(--orange);
+}
+
+.auth-tab:hover:not(.active) {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.auth-form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.auth-form .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.auth-form .form-label {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.auth-form .form-label .optional {
+    font-size: 0.75rem;
+    opacity: 0.6;
+}
+
+.auth-form .form-input {
+    width: 100%;
+    padding: 10px 14px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    outline: none;
+    transition: border-color 0.2s;
+    box-sizing: border-box;
+}
+
+.auth-form .form-input:focus {
+    border-color: var(--orange);
+}
+
+.auth-form .form-input::placeholder {
+    color: rgba(255, 255, 255, 0.2);
+}
+
+.auth-submit {
+    width: 100%;
+    margin-top: 8px;
+    padding: 12px;
+    font-size: 1rem;
+}
+
+.auth-error {
+    color: #ff4757;
+    font-size: 0.85rem;
+    text-align: center;
+    min-height: 20px;
+}
+
+/* ========================================
+   用户信息区域
+   ======================================== */
+.user-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    margin: 0 8px;
+    border-top: 1px solid var(--border-color);
+}
+
+.user-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--orange), var(--purple));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: white;
+    flex-shrink: 0;
+}
+
+.user-details {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.user-nickname {
+    font-size: 0.85rem;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.user-username {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.btn-logout {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 6px;
+    transition: all 0.2s;
+    flex-shrink: 0;
+}
+
+.btn-logout svg {
+    width: 18px;
+    height: 18px;
+}
+
+.btn-logout:hover {
+    color: #ff4757;
+    background: rgba(255, 71, 87, 0.1);
+}
+
+@media (max-width: 768px) {
+    .auth-card {
+        padding: 28px 20px;
+    }
+    .auth-title {
+        font-size: 1.5rem;
+    }
 }

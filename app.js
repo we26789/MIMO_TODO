@@ -96,52 +96,229 @@ class ParticleSystem {
 }
 
 // ========================================
+// 认证相关
+// ========================================
+function getToken() {
+    return localStorage.getItem('mimo_token');
+}
+
+function setToken(token) {
+    localStorage.setItem('mimo_token', token);
+}
+
+function clearToken() {
+    localStorage.removeItem('mimo_token');
+}
+
+async function authFetch(url, options = {}) {
+    const token = getToken();
+    if (!options.headers) options.headers = {};
+    if (token) options.headers['Authorization'] = `Bearer ${token}`;
+    if (options.body && !options.headers['Content-Type']) {
+        options.headers['Content-Type'] = 'application/json';
+    }
+    const res = await fetch(url, options);
+    if (res.status === 401) {
+        clearToken();
+        showAuthPage();
+        throw new Error('未登录');
+    }
+    return res;
+}
+
+function showAuthPage() {
+    document.getElementById('authPage').style.display = 'flex';
+    document.getElementById('appContainer').style.display = 'none';
+}
+
+function hideAuthPage() {
+    document.getElementById('authPage').style.display = 'none';
+    document.getElementById('appContainer').style.display = '';
+}
+
+function switchAuthTab(tab) {
+    document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
+    if (tab === 'login') {
+        document.querySelector('.auth-tab:first-child').classList.add('active');
+        document.getElementById('loginForm').style.display = '';
+        document.getElementById('registerForm').style.display = 'none';
+        document.getElementById('loginError').textContent = '';
+    } else {
+        document.querySelector('.auth-tab:last-child').classList.add('active');
+        document.getElementById('loginForm').style.display = 'none';
+        document.getElementById('registerForm').style.display = '';
+        document.getElementById('registerError').textContent = '';
+    }
+}
+
+async function handleLogin(e) {
+    e.preventDefault();
+    const username = document.getElementById('loginUsername').value.trim();
+    const password = document.getElementById('loginPassword').value;
+    const errorEl = document.getElementById('loginError');
+    const btn = document.getElementById('loginBtn');
+    errorEl.textContent = '';
+    errorEl.style.color = '#ff4757';
+    if (!username) { errorEl.textContent = '请输入用户名'; return; }
+    if (!password) { errorEl.textContent = '请输入密码'; return; }
+    btn.disabled = true;
+    btn.textContent = '登录中...';
+    try {
+        const res = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            errorEl.textContent = data.error || `登录失败 (HTTP ${res.status})`;
+            btn.disabled = false;
+            btn.textContent = '登录';
+            return;
+        }
+        setToken(data.token);
+        btn.textContent = '登录成功';
+        errorEl.style.color = '#34d399';
+        errorEl.textContent = '登录成功，正在进入...';
+        setTimeout(() => onAuthSuccess(data.user), 300);
+    } catch (err) {
+        console.error('登录错误:', err);
+        errorEl.textContent = '网络错误: ' + err.message;
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '登录';
+    }
+}
+
+async function handleRegister(e) {
+    e.preventDefault();
+    const username = document.getElementById('regUsername').value.trim();
+    const nickname = document.getElementById('regNickname').value.trim();
+    const password = document.getElementById('regPassword').value;
+    const confirm = document.getElementById('regPasswordConfirm').value;
+    const errorEl = document.getElementById('registerError');
+    const btn = document.getElementById('registerBtn');
+    errorEl.textContent = '';
+    errorEl.style.color = '#ff4757';
+    if (!username) { errorEl.textContent = '请输入用户名'; return; }
+    if (username.length < 3) { errorEl.textContent = '用户名至少3个字符'; return; }
+    if (!password) { errorEl.textContent = '请输入密码'; return; }
+    if (password.length < 6) { errorEl.textContent = '密码至少6个字符'; return; }
+    if (password !== confirm) { errorEl.textContent = '两次密码不一致'; return; }
+    btn.disabled = true;
+    btn.textContent = '注册中...';
+    try {
+        const res = await fetch('/api/auth/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password, nickname })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            errorEl.textContent = data.error || `注册失败 (HTTP ${res.status})`;
+            btn.disabled = false;
+            btn.textContent = '注册';
+            return;
+        }
+        setToken(data.token);
+        btn.textContent = '注册成功';
+        errorEl.style.color = '#34d399';
+        errorEl.textContent = '注册成功，正在进入...';
+        setTimeout(() => onAuthSuccess(data.user), 300);
+    } catch (err) {
+        console.error('注册错误:', err);
+        errorEl.textContent = '网络错误: ' + err.message;
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '注册';
+    }
+}
+
+function handleLogout() {
+    clearToken();
+    showAuthPage();
+}
+
+async function onAuthSuccess(user) {
+    try {
+        const nickname = user.nickname || user.username;
+        document.getElementById('userNickname').textContent = nickname;
+        document.getElementById('userUsername').textContent = '@' + user.username;
+        document.getElementById('userAvatar').textContent = nickname.charAt(0).toUpperCase();
+    } catch (e) {
+        console.error('更新用户信息失败:', e);
+    }
+    hideAuthPage();
+    try { await loadSchedules(); } catch (e) { console.error('加载日程失败:', e); }
+    try { setDefaultFormValues(); } catch (e) {}
+}
+
+async function checkAuth() {
+    const token = getToken();
+    if (!token) {
+        showAuthPage();
+        return;
+    }
+    try {
+        const res = await fetch('/api/auth/me', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!res.ok) {
+            clearToken();
+            showAuthPage();
+            return;
+        }
+        const user = await res.json();
+        onAuthSuccess(user);
+    } catch {
+        showAuthPage();
+    }
+}
+
+// ========================================
 // API 请求封装
 // ========================================
 async function apiGet() {
-    const res = await fetch(API);
+    const res = await authFetch(API);
     return res.json();
 }
 
 async function apiPost(data) {
-    const res = await fetch(API, {
+    const res = await authFetch(API, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
     });
     return res.json();
 }
 
 async function apiPut(id, data) {
-    const res = await fetch(`${API}/${id}`, {
+    const res = await authFetch(`${API}/${id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
     });
     return res.json();
 }
 
 async function apiDelete(id) {
-    const res = await fetch(`${API}/${id}`, { method: 'DELETE' });
+    const res = await authFetch(`${API}/${id}`, { method: 'DELETE' });
     return res.json();
 }
 
 async function apiToggle(id) {
-    const res = await fetch(`${API}/${id}/toggle`, { method: 'PATCH' });
+    const res = await authFetch(`${API}/${id}/toggle`, { method: 'PATCH' });
     return res.json();
 }
 
 async function apiCancel(id, reason) {
-    const res = await fetch(`${API}/${id}/cancel`, {
+    const res = await authFetch(`${API}/${id}/cancel`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cancel_reason: reason })
     });
     return res.json();
 }
 
 async function apiRestore(id) {
-    const res = await fetch(`${API}/${id}/restore`, { method: 'PATCH' });
+    const res = await authFetch(`${API}/${id}/restore`, { method: 'PATCH' });
     return res.json();
 }
 
@@ -157,8 +334,7 @@ document.addEventListener('DOMContentLoaded', () => {
     new ParticleSystem(document.getElementById('particleCanvas'));
     updateClock();
     setInterval(updateClock, 1000);
-    loadSchedules();
-    setDefaultFormValues();
+    checkAuth();
 });
 
 // 加载所有日程
@@ -478,9 +654,8 @@ function closeEmotionModal() {
 async function selectEmotion(emotion) {
     if (!pendingEmotionScheduleId) return;
     try {
-        await fetch(`${API}/${pendingEmotionScheduleId}/emotion`, {
+        await authFetch(`${API}/${pendingEmotionScheduleId}/emotion`, {
             method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ emotion })
         });
         showToast('情绪已记录');
@@ -574,8 +749,8 @@ function handleSearchInput() {
 async function fuzzySearch(q) {
     try {
         const [schedulesRes, goalsRes] = await Promise.all([
-            fetch(`${API}/search?q=${encodeURIComponent(q)}`),
-            fetch('/api/goals')
+            authFetch(`${API}/search?q=${encodeURIComponent(q)}`),
+            authFetch('/api/goals')
         ]);
         const scheduleResults = await schedulesRes.json();
         const goals = await goalsRes.json();
@@ -795,7 +970,7 @@ document.getElementById('cancelModal').addEventListener('click', (e) => {
 // ========================================
 async function loadAchievements(id) {
     try {
-        const res = await fetch(`${API}/${id}/achievements`);
+        const res = await authFetch(`${API}/${id}/achievements`);
         const achievements = await res.json();
         renderAchievements(achievements);
     } catch (err) {
@@ -845,9 +1020,8 @@ async function addTextAchievement() {
     const text = input.value.trim();
     if (!text) { showToast('请输入成果内容', 'error'); return; }
     try {
-        const res = await fetch(`${API}/${currentDetailId}/achievements`, {
+        const res = await authFetch(`${API}/${currentDetailId}/achievements`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ text })
         });
         const data = await res.json();
@@ -869,8 +1043,10 @@ async function uploadFileAchievement() {
     const formData = new FormData();
     formData.append('file', file);
     try {
+        const token = getToken();
         const res = await fetch(`${API}/${currentDetailId}/achievements/upload`, {
             method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` },
             body: formData
         });
         const data = await res.json();
@@ -890,7 +1066,7 @@ async function deleteAchievement(achId) {
     if (!currentDetailId) return;
     if (!confirm('确定要删除该成果吗？')) return;
     try {
-        const res = await fetch(`${API}/${currentDetailId}/achievements/${achId}`, { method: 'DELETE' });
+        const res = await authFetch(`${API}/${currentDetailId}/achievements/${achId}`, { method: 'DELETE' });
         const data = await res.json();
         if (data.success) {
             renderAchievements(data.achievements);
@@ -1161,7 +1337,7 @@ async function confirmAiSchedules(btn) {
     btn.disabled = true;
     btn.textContent = '创建中...';
     try {
-        const res = await fetch('/api/ai/confirm', {
+        const res = await authFetch('/api/ai/confirm', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ schedules }),
@@ -1727,7 +1903,7 @@ function removeCustomModule(key) {
 
 async function renderIntentView() {
     try {
-        const res = await fetch('/api/schedules/stats');
+        const res = await authFetch('/api/schedules/stats');
         const stats = await res.json();
         const cats = stats.byCategory || [];
         const customMods = getCustomModules();
@@ -2064,7 +2240,7 @@ async function renderWeeklyView() {
 
     try {
         const startDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-        const res = await fetch(`/api/schedules/weekly-report?startDate=${startDateStr}`);
+        const res = await authFetch(`/api/schedules/weekly-report?startDate=${startDateStr}`);
         const data = await res.json();
 
         // 概览卡片
@@ -2287,7 +2463,7 @@ async function downloadWeeklyReport() {
     const d = weeklyStartDate;
     const startDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     try {
-        const res = await fetch(`/api/schedules/weekly-export?startDate=${startDateStr}`);
+        const res = await authFetch(`/api/schedules/weekly-export?startDate=${startDateStr}`);
         if (!res.ok) throw new Error('下载失败');
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);
@@ -2478,7 +2654,7 @@ let selectedGoalId = null;
 // 仪表盘目标概览
 async function renderDashboardGoals() {
     try {
-        const res = await fetch('/api/goals');
+        const res = await authFetch('/api/goals');
         const goals = await res.json();
         const container = document.getElementById('dashboardGoalList');
         if (!goals || goals.length === 0) {
@@ -2508,7 +2684,7 @@ async function renderDashboardGoals() {
 // 目标页面
 async function renderGoalsPage() {
     try {
-        const res = await fetch('/api/goals');
+        const res = await authFetch('/api/goals');
         const goals = await res.json();
         const container = document.getElementById('goalsPageList');
         const emptyEl = document.getElementById('emptyPageGoals');
@@ -2553,7 +2729,7 @@ async function selectGoal(goalId) {
     event.currentTarget.classList.add('selected');
     // 加载详情
     try {
-        const res = await fetch(`/api/goals`);
+        const res = await authFetch(`/api/goals`);
         const goals = await res.json();
         const goal = goals.find(g => g.id === goalId);
         if (goal) showGoalDetail(goal);
@@ -2607,7 +2783,7 @@ async function loadGoalDetailCheckin(goalId) {
     try {
         const now = new Date();
         const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
-        const res = await fetch(`/api/goals/${goalId}/checkins?days=365`);
+        const res = await authFetch(`/api/goals/${goalId}/checkins?days=365`);
         const checkins = await res.json();
         const checkinDates = new Set(checkins.map(c => c.checkin_date.slice(0, 10)));
         const todayCheckin = checkins.find(c => c.checkin_date.slice(0, 10) === today);
@@ -2670,7 +2846,7 @@ async function loadGoalDetailCheckin(goalId) {
 
 async function showGoalCheckinHistory(goalId) {
     try {
-        const res = await fetch(`/api/goals/${goalId}/checkins?days=365`);
+        const res = await authFetch(`/api/goals/${goalId}/checkins?days=365`);
         const checkins = await res.json();
         const checkinDates = new Set(checkins.map(c => c.checkin_date.slice(0, 10)));
         const totalDays = checkinDates.size;
@@ -2886,7 +3062,7 @@ async function saveGoalFromForm() {
     if (!start_date || !end_date) { showToast('请选择日期范围', 'error'); return; }
 
     try {
-        const res = await fetch('/api/goals', {
+        const res = await authFetch('/api/goals', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ title, description, type, target_category, start_date, end_date,
@@ -2906,7 +3082,7 @@ async function saveGoalFromForm() {
 // 打卡功能
 async function checkinGoal(goalId) {
     try {
-        const res = await fetch(`/api/goals/${goalId}/checkin`, {
+        const res = await authFetch(`/api/goals/${goalId}/checkin`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({}),
@@ -2915,7 +3091,7 @@ async function checkinGoal(goalId) {
         if (data.success) {
             showToast('打卡成功');
             // 重新加载目标详情
-            const goalsRes = await fetch('/api/goals');
+            const goalsRes = await authFetch('/api/goals');
             const goals = await goalsRes.json();
             const goal = goals.find(g => g.id === goalId);
             if (goal) {
@@ -2932,10 +3108,10 @@ async function checkinGoal(goalId) {
 async function undoCheckinGoal(goalId, checkinId) {
     if (!confirm('确定取消今天的打卡？')) return;
     try {
-        await fetch(`/api/goals/${goalId}/checkin/${checkinId}`, { method: 'DELETE' });
+        await authFetch(`/api/goals/${goalId}/checkin/${checkinId}`, { method: 'DELETE' });
         showToast('已取消打卡');
         // 重新加载目标详情
-        const goalsRes = await fetch('/api/goals');
+        const goalsRes = await authFetch('/api/goals');
         const goals = await goalsRes.json();
         const goal = goals.find(g => g.id === goalId);
         if (goal) {
@@ -2952,7 +3128,7 @@ async function undoCheckinGoal(goalId, checkinId) {
 async function completeGoal(id) {
     if (!confirm('确定标记此目标为已完成？')) return;
     try {
-        await fetch(`/api/goals/${id}`, {
+        await authFetch(`/api/goals/${id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ status: 'completed' }),
@@ -2969,7 +3145,7 @@ async function cancelGoal(id) {
     const reason = prompt('请输入取消原因（可选）：');
     if (reason === null) return;
     try {
-        await fetch(`/api/goals/${id}/cancel`, {
+        await authFetch(`/api/goals/${id}/cancel`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ cancel_reason: reason }),
@@ -2985,7 +3161,7 @@ async function cancelGoal(id) {
 async function restoreGoal(id) {
     if (!confirm('确定恢复此目标？')) return;
     try {
-        await fetch(`/api/goals/${id}/restore`, { method: 'PATCH' });
+        await authFetch(`/api/goals/${id}/restore`, { method: 'PATCH' });
         showToast('目标已恢复');
         selectedGoalId = null;
         renderGoalsPage();
@@ -2997,7 +3173,7 @@ async function restoreGoal(id) {
 async function deleteGoal(id) {
     if (!confirm('确定删除此目标？此操作不可撤销。')) return;
     try {
-        await fetch(`/api/goals/${id}`, { method: 'DELETE' });
+        await authFetch(`/api/goals/${id}`, { method: 'DELETE' });
         showToast('目标已删除');
         selectedGoalId = null;
         renderGoalsPage();
@@ -3102,7 +3278,7 @@ function sendGoalAiExample(text) {
 
 async function confirmAiGoal(data) {
     try {
-        const res = await fetch('/api/goals', {
+        const res = await authFetch('/api/goals', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -3152,7 +3328,7 @@ async function saveGoalAchievement(goalId) {
     const content = document.getElementById('goalAchievementInput').value.trim();
     if (!content) { showToast('请输入成果内容', 'error'); return; }
     try {
-        await fetch(`/api/goals/${goalId}/achievements`, {
+        await authFetch(`/api/goals/${goalId}/achievements`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ content, type: 'text' }),
@@ -3175,7 +3351,7 @@ async function uploadGoalAchievement(goalId) {
         const formData = new FormData();
         formData.append('file', file);
         try {
-            await fetch(`/api/goals/${goalId}/achievements/upload`, {
+            await authFetch(`/api/goals/${goalId}/achievements/upload`, {
                 method: 'POST',
                 body: formData,
             });
@@ -3192,7 +3368,7 @@ async function uploadGoalAchievement(goalId) {
 async function deleteGoalAchievement(goalId, achId) {
     if (!confirm('确定删除此成果？')) return;
     try {
-        await fetch(`/api/goals/${goalId}/achievements/${achId}`, { method: 'DELETE' });
+        await authFetch(`/api/goals/${goalId}/achievements/${achId}`, { method: 'DELETE' });
         showToast('成果已删除');
         selectedGoalId = goalId;
         renderGoalsPage();
@@ -3243,7 +3419,7 @@ function showBindGoalModal(goalId) {
 
 async function bindScheduleToGoal(goalId, scheduleId) {
     try {
-        await fetch(`/api/goals/${goalId}/bind`, {
+        await authFetch(`/api/goals/${goalId}/bind`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ scheduleId }),
@@ -3258,7 +3434,7 @@ async function bindScheduleToGoal(goalId, scheduleId) {
 
 async function unbindScheduleFromGoal(goalId, scheduleId) {
     try {
-        await fetch(`/api/goals/${goalId}/unbind/${scheduleId}`, { method: 'DELETE' });
+        await authFetch(`/api/goals/${goalId}/unbind/${scheduleId}`, { method: 'DELETE' });
         showToast('已解绑');
         selectedGoalId = goalId;
         renderGoalsPage();
@@ -3325,7 +3501,7 @@ async function sendReviewMessage() {
     try {
         const d = weeklyStartDate;
         const startDateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-        const res = await fetch('/api/ai/review', {
+        const res = await authFetch('/api/ai/review', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ message, sessionId: reviewSessionId, startDate: startDateStr }),
@@ -3382,7 +3558,7 @@ function renderReviewMessage(role, html, id) {
 async function checkWeatherAlerts() {
     const city = localStorage.getItem('mimo_weather_city') || 'Beijing';
     try {
-        const res = await fetch(`/api/weather/alerts?city=${encodeURIComponent(city)}`);
+        const res = await authFetch(`/api/weather/alerts?city=${encodeURIComponent(city)}`);
         const data = await res.json();
         if (data.alerts && data.alerts.length > 0) {
             showWeatherAlerts(data.alerts);

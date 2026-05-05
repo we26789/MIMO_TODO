@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MIMO TODO - 智能日程管理</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=2">
 </head>
 <body>
     <!-- 粒子背景 -->
@@ -33,8 +33,66 @@
         </svg>
     </div>
 
+    <!-- 登录/注册页面 -->
+    <div class="auth-page" id="authPage">
+        <div class="auth-card">
+            <div class="auth-logo">
+                <div class="auth-logo-icon">
+                    <svg viewBox="0 0 40 40" fill="none">
+                        <circle cx="20" cy="20" r="18" stroke="var(--orange)" stroke-width="1.5" opacity="0.6"/>
+                        <circle cx="20" cy="20" r="12" stroke="var(--purple)" stroke-width="1" opacity="0.4"/>
+                        <circle cx="20" cy="20" r="4" fill="var(--orange)"/>
+                    </svg>
+                </div>
+                <h1 class="auth-title">MIMO <span class="accent">TODO</span></h1>
+                <p class="auth-subtitle">智能日程管理系统</p>
+            </div>
+
+            <div class="auth-tabs">
+                <button class="auth-tab active" onclick="switchAuthTab('login')">登录</button>
+                <button class="auth-tab" onclick="switchAuthTab('register')">注册</button>
+            </div>
+
+            <!-- 登录表单 -->
+            <form class="auth-form" id="loginForm" onsubmit="handleLogin(event)">
+                <div class="form-group">
+                    <label class="form-label">用户名</label>
+                    <input type="text" class="form-input" id="loginUsername" placeholder="请输入用户名" autocomplete="username" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">密码</label>
+                    <input type="password" class="form-input" id="loginPassword" placeholder="请输入密码" autocomplete="current-password" required>
+                </div>
+                <button type="submit" class="btn-primary auth-submit" id="loginBtn">登录</button>
+                <div class="auth-error" id="loginError"></div>
+            </form>
+
+            <!-- 注册表单 -->
+            <form class="auth-form" id="registerForm" style="display:none" onsubmit="handleRegister(event)">
+                <div class="form-group">
+                    <label class="form-label">用户名</label>
+                    <input type="text" class="form-input" id="regUsername" placeholder="3-20个字符" autocomplete="username" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">昵称 <span class="optional">(可选)</span></label>
+                    <input type="text" class="form-input" id="regNickname" placeholder="给自己取个名字" autocomplete="nickname">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">密码</label>
+                    <input type="password" class="form-input" id="regPassword" placeholder="至少6个字符" autocomplete="new-password" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">确认密码</label>
+                    <input type="password" class="form-input" id="regPasswordConfirm" placeholder="再次输入密码" autocomplete="new-password" required>
+                </div>
+                <button type="submit" class="btn-primary auth-submit" id="registerBtn">注册</button>
+                <div class="auth-error" id="registerError"></div>
+            </form>
+        </div>
+    </div>
+
     <!-- 主布局 -->
-    <div class="app-container">
+    <div class="app-container" id="appContainer" style="display:none">
         <!-- 侧边栏 -->
         <aside class="sidebar">
             <div class="logo">
@@ -197,6 +255,21 @@
                 </div>
             </div>
 
+            <div class="user-info" id="userInfo">
+                <div class="user-avatar" id="userAvatar">U</div>
+                <div class="user-details">
+                    <span class="user-nickname" id="userNickname">用户</span>
+                    <span class="user-username" id="userUsername"></span>
+                </div>
+                <button class="btn-logout" onclick="handleLogout()" title="退出登录">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                        <polyline points="16,17 21,12 16,7"/>
+                        <line x1="21" y1="12" x2="9" y2="12"/>
+                    </svg>
+                </button>
+            </div>
+
             <div class="sidebar-footer">
                 <div class="status-indicator">
                     <span class="status-dot"></span>
@@ -356,7 +429,7 @@
                     </div>
 
                     <!-- 目标概览 -->
-                    <div class="card" style="margin-top:16px">
+                    <div class="card">
                         <div class="card-header">
                             <h3>目标概览</h3>
                             <button class="btn-text" onclick="toggleGoalPanel()">查看全部 →</button>
@@ -718,7 +791,7 @@
                             <div class="card-header"><h3>精力与时段分析</h3></div>
                             <div class="card-body">
                                 <div id="weeklyEnergy"></div>
-                                <div id="weeklyPeriod" style="margin-top:16px"></div>
+                                <div id="weeklyPeriod"></div>
                             </div>
                         </div>
                         <div class="card weekly-chart-card">
@@ -1163,6 +1236,6 @@
         </div>
     </div>
 
-    <script src="app.js"></script>
+    <script src="app.js?v=2"></script>
 </body>
 </html>

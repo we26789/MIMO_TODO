@@ -7,6 +7,8 @@ const fs = require('fs');
 const zlib = require('zlib');
 const multer = require('multer');
 const ExcelJS = require('exceljs');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
 
 const app = express();
 const PORT = 3000;
@@ -68,6 +70,26 @@ const pool = mysql.createPool({
         console.log('[迁移] goal_checkins 表就绪');
     } catch (err) {
         console.error('[迁移] 失败:', err.message);
+    }
+
+    // 多用户认证迁移
+    try {
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS users (
+                id VARCHAR(30) PRIMARY KEY,
+                username VARCHAR(50) NOT NULL UNIQUE,
+                password_hash VARCHAR(255) NOT NULL,
+                nickname VARCHAR(50) DEFAULT '',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        `);
+        try { await pool.query('ALTER TABLE schedules ADD COLUMN user_id VARCHAR(30) DEFAULT NULL'); } catch {}
+        try { await pool.query('ALTER TABLE schedules ADD INDEX idx_user_id (user_id)'); } catch {}
+        try { await pool.query('ALTER TABLE goals ADD COLUMN user_id VARCHAR(30) DEFAULT NULL'); } catch {}
+        try { await pool.query('ALTER TABLE goals ADD INDEX idx_user_id (user_id)'); } catch {}
+        console.log('[迁移] users 表及 user_id 字段就绪');
+    } catch (err) {
+        console.error('[迁移] 用户表失败:', err.message);
     }
 })();
 
@@ -131,14 +153,84 @@ app.use((req, res, next) => {
 });
 
 // ========================================
+// 认证中间件
+// ========================================
+function authMiddleware(req, res, next) {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (!token) return res.status(401).json({ error: '未登录' });
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        req.userId = decoded.userId;
+        next();
+    } catch {
+        res.status(401).json({ error: 'Token 无效或已过期' });
+    }
+}
+
+// ========================================
+// 认证 API
+// ========================================
+app.post('/api/auth/register', async (req, res) => {
+    try {
+        const { username, password, nickname } = req.body;
+        if (!username || username.length < 3 || username.length > 20) return res.status(400).json({ error: '用户名需3-20个字符' });
+        if (!password || password.length < 6) return res.status(400).json({ error: '密码需至少6个字符' });
+
+        const [existing] = await pool.query('SELECT id FROM users WHERE username = ?', [username]);
+        if (existing.length > 0) return res.status(400).json({ error: '用户名已存在' });
+
+        const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+        const password_hash = await bcrypt.hash(password, 10);
+        await pool.query('INSERT INTO users (id, username, password_hash, nickname) VALUES (?, ?, ?, ?)', [id, username, password_hash, nickname || '']);
+
+        const token = jwt.sign({ userId: id }, process.env.JWT_SECRET, { expiresIn: '30d' });
+        res.json({ success: true, token, user: { id, username, nickname: nickname || '' } });
+    } catch (err) {
+        console.error('注册失败:', err);
+        res.status(500).json({ error: '注册失败' });
+    }
+});
+
+app.post('/api/auth/login', async (req, res) => {
+    try {
+        const { username, password } = req.body;
+        if (!username || !password) return res.status(400).json({ error: '请输入用户名和密码' });
+
+        const [rows] = await pool.query('SELECT * FROM users WHERE username = ?', [username]);
+        if (rows.length === 0) return res.status(401).json({ error: '用户名或密码错误' });
+
+        const user = rows[0];
+        const valid = await bcrypt.compare(password, user.password_hash);
+        if (!valid) return res.status(401).json({ error: '用户名或密码错误' });
+
+        const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, { expiresIn: '30d' });
+        res.json({ success: true, token, user: { id: user.id, username: user.username, nickname: user.nickname } });
+    } catch (err) {
+        console.error('登录失败:', err);
+        res.status(500).json({ error: '登录失败' });
+    }
+});
+
+app.get('/api/auth/me', authMiddleware, async (req, res) => {
+    try {
+        const [rows] = await pool.query('SELECT id, username, nickname FROM users WHERE id = ?', [req.userId]);
+        if (rows.length === 0) return res.status(404).json({ error: '用户不存在' });
+        res.json(rows[0]);
+    } catch (err) {
+        res.status(500).json({ error: '获取用户信息失败' });
+    }
+});
+
+// ========================================
 // API 路由
 // ========================================
 
 // 获取所有日程
-app.get('/api/schedules', async (req, res) => {
+app.get('/api/schedules', authMiddleware, async (req, res) => {
     try {
         const [rows] = await pool.query(
-            'SELECT *, start_time AS start, end_time AS `end` FROM schedules ORDER BY start_time DESC'
+            'SELECT *, start_time AS start, end_time AS `end` FROM schedules WHERE user_id = ? ORDER BY start_time DESC',
+            [req.userId]
         );
         res.json(rows);
     } catch (err) {
@@ -147,7 +239,7 @@ app.get('/api/schedules', async (req, res) => {
 });
 
 // 搜索日程（模糊匹配 + 相关度排序）
-app.get('/api/schedules/search', async (req, res) => {
+app.get('/api/schedules/search', authMiddleware, async (req, res) => {
     try {
         const q = req.query.q || '';
         if (!q.trim()) return res.json([]);
@@ -157,7 +249,7 @@ app.get('/api/schedules/search', async (req, res) => {
 
         // 构建 LIKE 条件
         const conditions = keywords.map(() => '(title LIKE ? OR description LIKE ?)').join(' OR ');
-        const params = [];
+        const params = [req.userId];
         keywords.forEach(kw => {
             params.push(`%${kw}%`, `%${kw}%`);
         });
@@ -165,7 +257,7 @@ app.get('/api/schedules/search', async (req, res) => {
         const [rows] = await pool.query(
             `SELECT *, start_time AS start, end_time AS \`end\`
              FROM schedules
-             WHERE ${conditions}
+             WHERE user_id = ? AND (${conditions})
              ORDER BY
                 CASE WHEN title LIKE ? THEN 0 ELSE 1 END,
                 CASE WHEN title LIKE ? THEN 0 ELSE 1 END,
@@ -206,13 +298,13 @@ app.get('/api/schedules/search', async (req, res) => {
 });
 
 // 新建日程
-app.post('/api/schedules', async (req, res) => {
+app.post('/api/schedules', authMiddleware, async (req, res) => {
     try {
         const { id, title, description, start, end, priority, urgency, category, energy_level, context_type, completed } = req.body;
         await pool.query(
-            `INSERT INTO schedules (id, title, description, start_time, end_time, priority, urgency, category, energy_level, context_type, completed)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [id, title, description || '', start, end, priority || 'low', urgency || 'normal', category || 'work', energy_level || 'medium', context_type || 'anywhere', completed ? 1 : 0]
+            `INSERT INTO schedules (id, title, description, start_time, end_time, priority, urgency, category, energy_level, context_type, completed, user_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [id, title, description || '', start, end, priority || 'low', urgency || 'normal', category || 'work', energy_level || 'medium', context_type || 'anywhere', completed ? 1 : 0, req.userId]
         );
         res.json({ success: true, id });
     } catch (err) {
@@ -221,14 +313,14 @@ app.post('/api/schedules', async (req, res) => {
 });
 
 // 更新日程
-app.put('/api/schedules/:id', async (req, res) => {
+app.put('/api/schedules/:id', authMiddleware, async (req, res) => {
     try {
         const { id } = req.params;
         const { title, description, start, end, priority, urgency, category, energy_level, context_type, completed } = req.body;
         await pool.query(
             `UPDATE schedules SET title=?, description=?, start_time=?, end_time=?, priority=?, urgency=?, category=?, energy_level=?, context_type=?, completed=?
-             WHERE id=?`,
-            [title, description || '', start, end, priority, urgency, category || 'work', energy_level || 'medium', context_type || 'anywhere', completed ? 1 : 0, id]
+             WHERE id=? AND user_id=?`,
+            [title, description || '', start, end, priority, urgency, category || 'work', energy_level || 'medium', context_type || 'anywhere', completed ? 1 : 0, id, req.userId]
         );
         res.json({ success: true });
     } catch (err) {
@@ -237,10 +329,10 @@ app.put('/api/schedules/:id', async (req, res) => {
 });
 
 // 删除日程
-app.delete('/api/schedules/:id', async (req, res) => {
+app.delete('/api/schedules/:id', authMiddleware, async (req, res) => {
     try {
         // 同时删除关联的成果文件
-        const [rows] = await pool.query('SELECT achievements FROM schedules WHERE id=?', [req.params.id]);
+        const [rows] = await pool.query('SELECT achievements FROM schedules WHERE id=? AND user_id=?', [req.params.id, req.userId]);
         if (rows.length > 0 && rows[0].achievements) {
             const achs = typeof rows[0].achievements === 'string' ? JSON.parse(rows[0].achievements) : rows[0].achievements;
             if (Array.isArray(achs)) {
@@ -252,7 +344,7 @@ app.delete('/api/schedules/:id', async (req, res) => {
                 });
             }
         }
-        await pool.query('DELETE FROM schedules WHERE id=?', [req.params.id]);
+        await pool.query('DELETE FROM schedules WHERE id=? AND user_id=?', [req.params.id, req.userId]);
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -260,13 +352,13 @@ app.delete('/api/schedules/:id', async (req, res) => {
 });
 
 // 切换完成状态
-app.patch('/api/schedules/:id/toggle', async (req, res) => {
+app.patch('/api/schedules/:id/toggle', authMiddleware, async (req, res) => {
     try {
-        const [rows] = await pool.query('SELECT completed FROM schedules WHERE id=?', [req.params.id]);
+        const [rows] = await pool.query('SELECT completed FROM schedules WHERE id=? AND user_id=?', [req.params.id, req.userId]);
         if (rows.length === 0) return res.status(404).json({ error: '日程不存在' });
         const newVal = rows[0].completed ? 0 : 1;
         const completedAt = newVal ? new Date() : null;
-        await pool.query('UPDATE schedules SET completed=?, completed_at=? WHERE id=?', [newVal, completedAt, req.params.id]);
+        await pool.query('UPDATE schedules SET completed=?, completed_at=? WHERE id=? AND user_id=?', [newVal, completedAt, req.params.id, req.userId]);
         res.json({ success: true, completed: newVal, completed_at: completedAt });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -274,14 +366,14 @@ app.patch('/api/schedules/:id/toggle', async (req, res) => {
 });
 
 // 取消日程
-app.patch('/api/schedules/:id/cancel', async (req, res) => {
+app.patch('/api/schedules/:id/cancel', authMiddleware, async (req, res) => {
     try {
-        const [rows] = await pool.query('SELECT id FROM schedules WHERE id=?', [req.params.id]);
+        const [rows] = await pool.query('SELECT id FROM schedules WHERE id=? AND user_id=?', [req.params.id, req.userId]);
         if (rows.length === 0) return res.status(404).json({ error: '日程不存在' });
         const { cancel_reason } = req.body;
         await pool.query(
-            'UPDATE schedules SET cancel_reason=?, cancelled_at=NOW() WHERE id=?',
-            [cancel_reason || null, req.params.id]
+            'UPDATE schedules SET cancel_reason=?, cancelled_at=NOW() WHERE id=? AND user_id=?',
+            [cancel_reason || null, req.params.id, req.userId]
         );
         res.json({ success: true, cancel_reason, cancelled_at: new Date() });
     } catch (err) {
@@ -290,13 +382,13 @@ app.patch('/api/schedules/:id/cancel', async (req, res) => {
 });
 
 // 恢复已取消的日程
-app.patch('/api/schedules/:id/restore', async (req, res) => {
+app.patch('/api/schedules/:id/restore', authMiddleware, async (req, res) => {
     try {
-        const [rows] = await pool.query('SELECT id FROM schedules WHERE id=?', [req.params.id]);
+        const [rows] = await pool.query('SELECT id FROM schedules WHERE id=? AND user_id=?', [req.params.id, req.userId]);
         if (rows.length === 0) return res.status(404).json({ error: '日程不存在' });
         await pool.query(
-            'UPDATE schedules SET cancel_reason=NULL, cancelled_at=NULL WHERE id=?',
-            [req.params.id]
+            'UPDATE schedules SET cancel_reason=NULL, cancelled_at=NULL WHERE id=? AND user_id=?',
+            [req.params.id, req.userId]
         );
         res.json({ success: true });
     } catch (err) {
@@ -309,9 +401,9 @@ app.patch('/api/schedules/:id/restore', async (req, res) => {
 // ========================================
 
 // 获取日程的成果
-app.get('/api/schedules/:id/achievements', async (req, res) => {
+app.get('/api/schedules/:id/achievements', authMiddleware, async (req, res) => {
     try {
-        const [rows] = await pool.query('SELECT achievements FROM schedules WHERE id=?', [req.params.id]);
+        const [rows] = await pool.query('SELECT achievements FROM schedules WHERE id=? AND user_id=?', [req.params.id, req.userId]);
         if (rows.length === 0) return res.status(404).json({ error: '日程不存在' });
         const achievements = rows[0].achievements
             ? (typeof rows[0].achievements === 'string' ? JSON.parse(rows[0].achievements) : rows[0].achievements)
@@ -323,12 +415,12 @@ app.get('/api/schedules/:id/achievements', async (req, res) => {
 });
 
 // 添加成果（文字）
-app.post('/api/schedules/:id/achievements', async (req, res) => {
+app.post('/api/schedules/:id/achievements', authMiddleware, async (req, res) => {
     try {
         const { text } = req.body;
         if (!text || !text.trim()) return res.status(400).json({ error: '内容不能为空' });
 
-        const [rows] = await pool.query('SELECT achievements FROM schedules WHERE id=?', [req.params.id]);
+        const [rows] = await pool.query('SELECT achievements FROM schedules WHERE id=? AND user_id=?', [req.params.id, req.userId]);
         if (rows.length === 0) return res.status(404).json({ error: '日程不存在' });
 
         const achievements = rows[0].achievements
@@ -342,7 +434,7 @@ app.post('/api/schedules/:id/achievements', async (req, res) => {
             createdAt: new Date().toISOString()
         });
 
-        await pool.query('UPDATE schedules SET achievements=? WHERE id=?', [JSON.stringify(achievements), req.params.id]);
+        await pool.query('UPDATE schedules SET achievements=? WHERE id=? AND user_id=?', [JSON.stringify(achievements), req.params.id, req.userId]);
         res.json({ success: true, achievements });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -350,11 +442,11 @@ app.post('/api/schedules/:id/achievements', async (req, res) => {
 });
 
 // 添加成果（文件上传 - 图片/视频）
-app.post('/api/schedules/:id/achievements/upload', upload.single('file'), async (req, res) => {
+app.post('/api/schedules/:id/achievements/upload', authMiddleware, upload.single('file'), async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ error: '请选择文件' });
 
-        const [rows] = await pool.query('SELECT achievements FROM schedules WHERE id=?', [req.params.id]);
+        const [rows] = await pool.query('SELECT achievements FROM schedules WHERE id=? AND user_id=?', [req.params.id, req.userId]);
         if (rows.length === 0) return res.status(404).json({ error: '日程不存在' });
 
         const achievements = rows[0].achievements
@@ -374,7 +466,7 @@ app.post('/api/schedules/:id/achievements/upload', upload.single('file'), async 
             createdAt: new Date().toISOString()
         });
 
-        await pool.query('UPDATE schedules SET achievements=? WHERE id=?', [JSON.stringify(achievements), req.params.id]);
+        await pool.query('UPDATE schedules SET achievements=? WHERE id=? AND user_id=?', [JSON.stringify(achievements), req.params.id, req.userId]);
         res.json({ success: true, achievements });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -382,9 +474,9 @@ app.post('/api/schedules/:id/achievements/upload', upload.single('file'), async 
 });
 
 // 删除成果
-app.delete('/api/schedules/:id/achievements/:achId', async (req, res) => {
+app.delete('/api/schedules/:id/achievements/:achId', authMiddleware, async (req, res) => {
     try {
-        const [rows] = await pool.query('SELECT achievements FROM schedules WHERE id=?', [req.params.id]);
+        const [rows] = await pool.query('SELECT achievements FROM schedules WHERE id=? AND user_id=?', [req.params.id, req.userId]);
         if (rows.length === 0) return res.status(404).json({ error: '日程不存在' });
 
         let achievements = rows[0].achievements
@@ -398,7 +490,7 @@ app.delete('/api/schedules/:id/achievements/:achId', async (req, res) => {
         }
 
         achievements = achievements.filter(a => a.id !== req.params.achId);
-        await pool.query('UPDATE schedules SET achievements=? WHERE id=?', [JSON.stringify(achievements), req.params.id]);
+        await pool.query('UPDATE schedules SET achievements=? WHERE id=? AND user_id=?', [JSON.stringify(achievements), req.params.id, req.userId]);
         res.json({ success: true, achievements });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -406,14 +498,14 @@ app.delete('/api/schedules/:id/achievements/:achId', async (req, res) => {
 });
 
 // 批量同步
-app.post('/api/schedules/sync', async (req, res) => {
+app.post('/api/schedules/sync', authMiddleware, async (req, res) => {
     try {
         const { schedules } = req.body;
         if (!Array.isArray(schedules)) return res.status(400).json({ error: '参数错误' });
         for (const s of schedules) {
             await pool.query(
-                `INSERT INTO schedules (id, title, description, start_time, end_time, priority, urgency, category, energy_level, context_type, completed, created_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `INSERT INTO schedules (id, title, description, start_time, end_time, priority, urgency, category, energy_level, context_type, completed, created_at, user_id)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                  ON DUPLICATE KEY UPDATE
                     title=VALUES(title), description=VALUES(description),
                     start_time=VALUES(start_time), end_time=VALUES(end_time),
@@ -422,7 +514,7 @@ app.post('/api/schedules/sync', async (req, res) => {
                     context_type=VALUES(context_type), completed=VALUES(completed)`,
                 [s.id, s.title, s.description || '', s.start, s.end,
                  s.priority || 'low', s.urgency || 'normal', s.category || 'work', s.energy_level || 'medium', s.context_type || 'anywhere',
-                 s.completed ? 1 : 0, s.createdAt || new Date()]
+                 s.completed ? 1 : 0, s.createdAt || new Date(), req.userId]
             );
         }
         res.json({ success: true, synced: schedules.length });
@@ -453,15 +545,17 @@ app.get('/api/music', (req, res) => {
 // ========================================
 // 统计数据 API（视角视图用）
 // ========================================
-app.get('/api/schedules/stats', async (req, res) => {
+app.get('/api/schedules/stats', authMiddleware, async (req, res) => {
     try {
         const [byCategory] = await pool.query(
             `SELECT category, COUNT(*) as count,
              SUM(TIMESTAMPDIFF(MINUTE, start_time, end_time)) as totalMinutes
-             FROM schedules GROUP BY category`
+             FROM schedules WHERE user_id = ? GROUP BY category`,
+            [req.userId]
         );
         const [byEnergy] = await pool.query(
-            `SELECT energy_level, COUNT(*) as count FROM schedules GROUP BY energy_level`
+            `SELECT energy_level, COUNT(*) as count FROM schedules WHERE user_id = ? GROUP BY energy_level`,
+            [req.userId]
         );
         res.json({ byCategory, byEnergy });
     } catch (err) {
@@ -485,7 +579,7 @@ function getWeekRange(startDateStr) {
     return { monday, sunday };
 }
 
-app.get('/api/schedules/weekly-report', async (req, res) => {
+app.get('/api/schedules/weekly-report', authMiddleware, async (req, res) => {
     try {
         const startDate = req.query.startDate || formatDateLocal(new Date());
         const { monday, sunday } = getWeekRange(startDate);
@@ -499,15 +593,15 @@ app.get('/api/schedules/weekly-report', async (req, res) => {
             `SELECT COUNT(*) as total,
                     SUM(completed) as completedCount,
                     SUM(TIMESTAMPDIFF(MINUTE, start_time, end_time)) as totalMinutes
-             FROM schedules WHERE start_time >= ? AND start_time < ?`,
-            [mondayStr, endDate]
+             FROM schedules WHERE user_id = ? AND start_time >= ? AND start_time < ?`,
+            [req.userId, mondayStr, endDate]
         );
         let cancelledCount = 0;
         try {
             const [cancelRows] = await pool.query(
                 `SELECT SUM(CASE WHEN cancel_reason IS NOT NULL THEN 1 ELSE 0 END) as cancelledCount
-                 FROM schedules WHERE start_time >= ? AND start_time < ?`,
-                [mondayStr, endDate]
+                 FROM schedules WHERE user_id = ? AND start_time >= ? AND start_time < ?`,
+                [req.userId, mondayStr, endDate]
             );
             cancelledCount = cancelRows[0].cancelledCount || 0;
         } catch (e) { /* cancel_reason column doesn't exist yet */ }
@@ -516,18 +610,18 @@ app.get('/api/schedules/weekly-report', async (req, res) => {
         const [byCategory] = await pool.query(
             `SELECT category, COUNT(*) as count,
                     SUM(TIMESTAMPDIFF(MINUTE, start_time, end_time)) as totalMinutes
-             FROM schedules WHERE start_time >= ? AND start_time < ?
+             FROM schedules WHERE user_id = ? AND start_time >= ? AND start_time < ?
              GROUP BY category ORDER BY totalMinutes DESC`,
-            [mondayStr, endDate]
+            [req.userId, mondayStr, endDate]
         );
 
         // 每日统计
         const [byDay] = await pool.query(
             `SELECT DATE(start_time) as date, COUNT(*) as count,
                     SUM(TIMESTAMPDIFF(MINUTE, start_time, end_time)) as totalMinutes
-             FROM schedules WHERE start_time >= ? AND start_time < ?
+             FROM schedules WHERE user_id = ? AND start_time >= ? AND start_time < ?
              GROUP BY DATE(start_time) ORDER BY date`,
-            [mondayStr, endDate]
+            [req.userId, mondayStr, endDate]
         );
         const byDayWithLabels = byDay.map(d => ({
             ...d,
@@ -537,9 +631,9 @@ app.get('/api/schedules/weekly-report', async (req, res) => {
         // 精力等级统计
         const [byEnergy] = await pool.query(
             `SELECT energy_level, COUNT(*) as count
-             FROM schedules WHERE start_time >= ? AND start_time < ?
+             FROM schedules WHERE user_id = ? AND start_time >= ? AND start_time < ?
              GROUP BY energy_level`,
-            [mondayStr, endDate]
+            [req.userId, mondayStr, endDate]
         );
 
         // 时段统计
@@ -553,25 +647,25 @@ app.get('/api/schedules/weekly-report', async (req, res) => {
                     ELSE 'night'
                 END as period,
                 COUNT(*) as count
-             FROM schedules WHERE start_time >= ? AND start_time < ?
+             FROM schedules WHERE user_id = ? AND start_time >= ? AND start_time < ?
              GROUP BY period`,
-            [mondayStr, endDate]
+            [req.userId, mondayStr, endDate]
         );
 
         // 优先级统计
         const [byPriority] = await pool.query(
             `SELECT priority, COUNT(*) as count
-             FROM schedules WHERE start_time >= ? AND start_time < ?
+             FROM schedules WHERE user_id = ? AND start_time >= ? AND start_time < ?
              GROUP BY priority`,
-            [mondayStr, endDate]
+            [req.userId, mondayStr, endDate]
         );
 
         // 24小时分布
         const [hourlyRows] = await pool.query(
             `SELECT HOUR(start_time) as hour, COUNT(*) as count
-             FROM schedules WHERE start_time >= ? AND start_time < ?
+             FROM schedules WHERE user_id = ? AND start_time >= ? AND start_time < ?
              GROUP BY HOUR(start_time)`,
-            [mondayStr, endDate]
+            [req.userId, mondayStr, endDate]
         );
         const hourlyDistribution = Array(24).fill(0);
         hourlyRows.forEach(r => { hourlyDistribution[r.hour] = r.count; });
@@ -598,7 +692,7 @@ app.get('/api/schedules/weekly-report', async (req, res) => {
 });
 
 // 周报 Excel 导出
-app.get('/api/schedules/weekly-export', async (req, res) => {
+app.get('/api/schedules/weekly-export', authMiddleware, async (req, res) => {
     try {
         const startDate = req.query.startDate || formatDateLocal(new Date());
         const { monday, sunday } = getWeekRange(startDate);
@@ -611,17 +705,17 @@ app.get('/api/schedules/weekly-export', async (req, res) => {
             [schedules] = await pool.query(
                 `SELECT title, category, start_time, end_time, priority, urgency,
                         energy_level, completed, cancel_reason
-                 FROM schedules WHERE start_time >= ? AND start_time < ?
+                 FROM schedules WHERE user_id = ? AND start_time >= ? AND start_time < ?
                  ORDER BY start_time`,
-                [mondayStr, endDate]
+                [req.userId, mondayStr, endDate]
             );
         } catch (e) {
             [schedules] = await pool.query(
                 `SELECT title, category, start_time, end_time, priority, urgency,
                         energy_level, completed
-                 FROM schedules WHERE start_time >= ? AND start_time < ?
+                 FROM schedules WHERE user_id = ? AND start_time >= ? AND start_time < ?
                  ORDER BY start_time`,
-                [mondayStr, endDate]
+                [req.userId, mondayStr, endDate]
             );
         }
 
@@ -1013,7 +1107,7 @@ function extractSchedulesFromReply(reply) {
 }
 
 // 一键确认创建日程
-app.post('/api/ai/confirm', async (req, res) => {
+app.post('/api/ai/confirm', authMiddleware, async (req, res) => {
     try {
         const { schedules } = req.body;
         if (!Array.isArray(schedules) || !schedules.length) {
@@ -1025,10 +1119,10 @@ app.post('/api/ai/confirm', async (req, res) => {
             const start = s.start ? s.start.replace(' ', 'T') : new Date().toISOString().slice(0, 16);
             const end = s.end ? s.end.replace(' ', 'T') : new Date(Date.now() + 7200000).toISOString().slice(0, 16);
             await pool.query(
-                `INSERT INTO schedules (id, title, description, start_time, end_time, priority, urgency, category, energy_level, context_type, completed)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+                `INSERT INTO schedules (id, title, description, start_time, end_time, priority, urgency, category, energy_level, context_type, completed, user_id)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
                 [id, s.title || '未命名日程', s.description || '', start, end,
-                 s.priority || 'low', s.urgency || 'normal', s.category || 'work', s.energy_level || 'medium', s.context_type || 'anywhere']
+                 s.priority || 'low', s.urgency || 'normal', s.category || 'work', s.energy_level || 'medium', s.context_type || 'anywhere', req.userId]
             );
             created.push({ id, title: s.title });
         }
@@ -1043,14 +1137,16 @@ app.post('/api/ai/confirm', async (req, res) => {
 // ========================================
 
 // GET /api/goals — 获取所有目标
-app.get('/api/goals', async (req, res) => {
+app.get('/api/goals', authMiddleware, async (req, res) => {
     try {
         const [goals] = await pool.query(
             `SELECT g.*, COUNT(gs.id) as scheduleCount
              FROM goals g
              LEFT JOIN goal_schedules gs ON gs.goal_id = g.id
+             WHERE g.user_id = ?
              GROUP BY g.id
-             ORDER BY g.created_at DESC`
+             ORDER BY g.created_at DESC`,
+            [req.userId]
         );
 
         // 查询每个目标的实际完成分钟数
@@ -1060,8 +1156,8 @@ app.get('/api/goals', async (req, res) => {
                     `SELECT COALESCE(SUM(TIMESTAMPDIFF(MINUTE, s.start_time, s.end_time)), 0) as actualMinutes
                      FROM goal_schedules gs
                      JOIN schedules s ON s.id = gs.schedule_id
-                     WHERE gs.goal_id = ?`,
-                    [goal.id]
+                     WHERE gs.goal_id = ? AND s.user_id = ?`,
+                    [goal.id, req.userId]
                 );
                 goal.actualMinutes = rows[0].actualMinutes || 0;
             } catch (e) {
@@ -1076,20 +1172,20 @@ app.get('/api/goals', async (req, res) => {
 });
 
 // POST /api/goals — 创建目标
-app.post('/api/goals', async (req, res) => {
+app.post('/api/goals', authMiddleware, async (req, res) => {
     try {
         const { title, description, type, target_category, start_date, end_date,
                 checkin_required, checkin_remind, checkin_start_time, checkin_end_time } = req.body;
         const id = Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
         await pool.query(
             `INSERT INTO goals (id, title, description, type, target_category, start_date, end_date,
-                                checkin_required, checkin_remind, checkin_start_time, checkin_end_time)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                                checkin_required, checkin_remind, checkin_start_time, checkin_end_time, user_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [id, title, description || '', type || 'monthly', target_category || null,
              start_date || null, end_date || null,
              checkin_required !== undefined ? (checkin_required ? 1 : 0) : 1,
              checkin_remind !== undefined ? (checkin_remind ? 1 : 0) : 1,
-             checkin_start_time || null, checkin_end_time || null]
+             checkin_start_time || null, checkin_end_time || null, req.userId]
         );
         res.json({ success: true, id });
     } catch (err) {
@@ -1098,7 +1194,7 @@ app.post('/api/goals', async (req, res) => {
 });
 
 // PUT /api/goals/:id — 更新目标
-app.put('/api/goals/:id', async (req, res) => {
+app.put('/api/goals/:id', authMiddleware, async (req, res) => {
     try {
         const { id } = req.params;
         const { title, description, type, target_category, start_date, end_date, status,
@@ -1115,13 +1211,13 @@ app.put('/api/goals/:id', async (req, res) => {
             `UPDATE goals SET title=?, description=?, type=?, target_category=?, start_date=?, end_date=?,
                     status=?, checkin_required=?, checkin_remind=?,
                     checkin_start_time=?, checkin_end_time=?, cancel_reason=?, cancelled_at=?
-             WHERE id=?`,
+             WHERE id=? AND user_id=?`,
             [title || '', description || '', type || 'monthly', target_category || null,
              start_date || null, end_date || null, status || 'active',
              checkin_required !== undefined ? (checkin_required ? 1 : 0) : 1,
              checkin_remind !== undefined ? (checkin_remind ? 1 : 0) : 1,
              checkin_start_time || null, checkin_end_time || null,
-             cancel_reason || null, cancelled_at, id]
+             cancel_reason || null, cancelled_at, id, req.userId]
         );
         res.json({ success: true });
     } catch (err) {
@@ -1130,11 +1226,14 @@ app.put('/api/goals/:id', async (req, res) => {
 });
 
 // DELETE /api/goals/:id — 删除目标
-app.delete('/api/goals/:id', async (req, res) => {
+app.delete('/api/goals/:id', authMiddleware, async (req, res) => {
     try {
+        // 先验证目标属于当前用户
+        const [goalRows] = await pool.query('SELECT id FROM goals WHERE id=? AND user_id=?', [req.params.id, req.userId]);
+        if (goalRows.length === 0) return res.status(404).json({ error: '目标不存在' });
         await pool.query('DELETE FROM goal_checkins WHERE goal_id=?', [req.params.id]);
         await pool.query('DELETE FROM goal_schedules WHERE goal_id=?', [req.params.id]);
-        await pool.query('DELETE FROM goals WHERE id=?', [req.params.id]);
+        await pool.query('DELETE FROM goals WHERE id=? AND user_id=?', [req.params.id, req.userId]);
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -1142,12 +1241,12 @@ app.delete('/api/goals/:id', async (req, res) => {
 });
 
 // PATCH /api/goals/:id/cancel — 取消目标
-app.patch('/api/goals/:id/cancel', async (req, res) => {
+app.patch('/api/goals/:id/cancel', authMiddleware, async (req, res) => {
     try {
         const { cancel_reason } = req.body;
         await pool.query(
-            `UPDATE goals SET status='cancelled', cancel_reason=?, cancelled_at=NOW() WHERE id=?`,
-            [cancel_reason || null, req.params.id]
+            `UPDATE goals SET status='cancelled', cancel_reason=?, cancelled_at=NOW() WHERE id=? AND user_id=?`,
+            [cancel_reason || null, req.params.id, req.userId]
         );
         res.json({ success: true });
     } catch (err) {
@@ -1156,11 +1255,11 @@ app.patch('/api/goals/:id/cancel', async (req, res) => {
 });
 
 // PATCH /api/goals/:id/restore — 恢复已取消的目标
-app.patch('/api/goals/:id/restore', async (req, res) => {
+app.patch('/api/goals/:id/restore', authMiddleware, async (req, res) => {
     try {
         await pool.query(
-            `UPDATE goals SET status='active', cancel_reason=NULL, cancelled_at=NULL WHERE id=?`,
-            [req.params.id]
+            `UPDATE goals SET status='active', cancel_reason=NULL, cancelled_at=NULL WHERE id=? AND user_id=?`,
+            [req.params.id, req.userId]
         );
         res.json({ success: true });
     } catch (err) {
@@ -1169,9 +1268,12 @@ app.patch('/api/goals/:id/restore', async (req, res) => {
 });
 
 // POST /api/goals/:id/bind — 绑定日程到目标
-app.post('/api/goals/:id/bind', async (req, res) => {
+app.post('/api/goals/:id/bind', authMiddleware, async (req, res) => {
     try {
         const { scheduleId } = req.body;
+        // 验证目标属于当前用户
+        const [goalRows] = await pool.query('SELECT id FROM goals WHERE id=? AND user_id=?', [req.params.id, req.userId]);
+        if (goalRows.length === 0) return res.status(404).json({ error: '目标不存在' });
         await pool.query(
             'INSERT INTO goal_schedules (goal_id, schedule_id) VALUES (?, ?)',
             [req.params.id, scheduleId]
@@ -1183,8 +1285,11 @@ app.post('/api/goals/:id/bind', async (req, res) => {
 });
 
 // DELETE /api/goals/:id/unbind/:scheduleId — 解绑日程
-app.delete('/api/goals/:id/unbind/:scheduleId', async (req, res) => {
+app.delete('/api/goals/:id/unbind/:scheduleId', authMiddleware, async (req, res) => {
     try {
+        // 验证目标属于当前用户
+        const [goalRows] = await pool.query('SELECT id FROM goals WHERE id=? AND user_id=?', [req.params.id, req.userId]);
+        if (goalRows.length === 0) return res.status(404).json({ error: '目标不存在' });
         await pool.query(
             'DELETE FROM goal_schedules WHERE goal_id=? AND schedule_id=?',
             [req.params.id, req.params.scheduleId]
@@ -1196,15 +1301,15 @@ app.delete('/api/goals/:id/unbind/:scheduleId', async (req, res) => {
 });
 
 // GET /api/goals/:id/schedules — 获取目标关联的日程
-app.get('/api/goals/:id/schedules', async (req, res) => {
+app.get('/api/goals/:id/schedules', authMiddleware, async (req, res) => {
     try {
         const [rows] = await pool.query(
             `SELECT s.*, s.start_time AS start, s.end_time AS \`end\`
              FROM goal_schedules gs
              JOIN schedules s ON s.id = gs.schedule_id
-             WHERE gs.goal_id = ?
+             WHERE gs.goal_id = ? AND s.user_id = ?
              ORDER BY s.start_time DESC`,
-            [req.params.id]
+            [req.params.id, req.userId]
         );
         res.json(rows);
     } catch (err) {
@@ -1213,8 +1318,11 @@ app.get('/api/goals/:id/schedules', async (req, res) => {
 });
 
 // POST /api/goals/:id/checkin — 打卡
-app.post('/api/goals/:id/checkin', async (req, res) => {
+app.post('/api/goals/:id/checkin', authMiddleware, async (req, res) => {
     try {
+        // 验证目标属于当前用户
+        const [goalRows] = await pool.query('SELECT id FROM goals WHERE id=? AND user_id=?', [req.params.id, req.userId]);
+        if (goalRows.length === 0) return res.status(404).json({ error: '目标不存在' });
         const { note } = req.body || {};
         const now = new Date();
         const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
@@ -1229,8 +1337,11 @@ app.post('/api/goals/:id/checkin', async (req, res) => {
 });
 
 // DELETE /api/goals/:id/checkin/:checkinId — 取消打卡
-app.delete('/api/goals/:id/checkin/:checkinId', async (req, res) => {
+app.delete('/api/goals/:id/checkin/:checkinId', authMiddleware, async (req, res) => {
     try {
+        // 验证目标属于当前用户
+        const [goalRows] = await pool.query('SELECT id FROM goals WHERE id=? AND user_id=?', [req.params.id, req.userId]);
+        if (goalRows.length === 0) return res.status(404).json({ error: '目标不存在' });
         await pool.query('DELETE FROM goal_checkins WHERE id=? AND goal_id=?', [req.params.checkinId, req.params.id]);
         res.json({ success: true });
     } catch (err) {
@@ -1239,8 +1350,11 @@ app.delete('/api/goals/:id/checkin/:checkinId', async (req, res) => {
 });
 
 // GET /api/goals/:id/checkins — 获取打卡记录
-app.get('/api/goals/:id/checkins', async (req, res) => {
+app.get('/api/goals/:id/checkins', authMiddleware, async (req, res) => {
     try {
+        // 验证目标属于当前用户
+        const [goalRows] = await pool.query('SELECT id FROM goals WHERE id=? AND user_id=?', [req.params.id, req.userId]);
+        if (goalRows.length === 0) return res.status(404).json({ error: '目标不存在' });
         const days = parseInt(req.query.days) || 30;
         const [rows] = await pool.query(
             "SELECT id, goal_id, DATE_FORMAT(checkin_date, '%Y-%m-%d') as checkin_date, note, created_at, status, checkin_time FROM goal_checkins WHERE goal_id=? AND checkin_date >= DATE_SUB(CURDATE(), INTERVAL ? DAY) ORDER BY checkin_date DESC",
@@ -1253,7 +1367,7 @@ app.get('/api/goals/:id/checkins', async (req, res) => {
 });
 
 // GET /api/goals/checkin-remind — 检查今日需要打卡的目标并提醒
-app.get('/api/goals/checkin-remind', async (req, res) => {
+app.get('/api/goals/checkin-remind', authMiddleware, async (req, res) => {
     try {
         const now2 = new Date();
         const today = `${now2.getFullYear()}-${String(now2.getMonth()+1).padStart(2,'0')}-${String(now2.getDate()).padStart(2,'0')}`;
@@ -1262,12 +1376,13 @@ app.get('/api/goals/checkin-remind', async (req, res) => {
         // 获取所有需要打卡且未完成的目标
         const [goals] = await pool.query(
             `SELECT g.* FROM goals g
-             WHERE g.status = 'active'
+             WHERE g.user_id = ?
+             AND g.status = 'active'
              AND g.checkin_required = 1
              AND g.checkin_remind = 1
              AND g.start_date <= ?
              AND g.end_date >= ?`,
-            [today, today]
+            [req.userId, today, today]
         );
 
         const reminders = [];
@@ -1303,13 +1418,14 @@ app.get('/api/goals/checkin-remind', async (req, res) => {
 });
 
 // POST /api/goals/:id/achievements — 添加目标成果
-app.post('/api/goals/:id/achievements', async (req, res) => {
+app.post('/api/goals/:id/achievements', authMiddleware, async (req, res) => {
     try {
         const { content, type } = req.body; // type: 'text' or 'file'
         const goalId = req.params.id;
 
         // 获取现有的成果
-        const [goals] = await pool.query('SELECT achievements FROM goals WHERE id=?', [goalId]);
+        const [goals] = await pool.query('SELECT achievements FROM goals WHERE id=? AND user_id=?', [goalId, req.userId]);
+        if (goals.length === 0) return res.status(404).json({ error: '目标不存在' });
         let achievements = goals[0]?.achievements || [];
 
         const newAchievement = {
@@ -1322,8 +1438,8 @@ app.post('/api/goals/:id/achievements', async (req, res) => {
         achievements.push(newAchievement);
 
         await pool.query(
-            'UPDATE goals SET achievements=? WHERE id=?',
-            [JSON.stringify(achievements), goalId]
+            'UPDATE goals SET achievements=? WHERE id=? AND user_id=?',
+            [JSON.stringify(achievements), goalId, req.userId]
         );
 
         res.json({ success: true, achievement: newAchievement });
@@ -1333,17 +1449,18 @@ app.post('/api/goals/:id/achievements', async (req, res) => {
 });
 
 // DELETE /api/goals/:id/achievements/:achId — 删除目标成果
-app.delete('/api/goals/:id/achievements/:achId', async (req, res) => {
+app.delete('/api/goals/:id/achievements/:achId', authMiddleware, async (req, res) => {
     try {
         const { id, achId } = req.params;
 
-        const [goals] = await pool.query('SELECT achievements FROM goals WHERE id=?', [id]);
+        const [goals] = await pool.query('SELECT achievements FROM goals WHERE id=? AND user_id=?', [id, req.userId]);
+        if (goals.length === 0) return res.status(404).json({ error: '目标不存在' });
         let achievements = goals[0]?.achievements || [];
         achievements = achievements.filter(a => a.id !== achId);
 
         await pool.query(
-            'UPDATE goals SET achievements=? WHERE id=?',
-            [JSON.stringify(achievements), id]
+            'UPDATE goals SET achievements=? WHERE id=? AND user_id=?',
+            [JSON.stringify(achievements), id, req.userId]
         );
 
         res.json({ success: true });
@@ -1353,7 +1470,7 @@ app.delete('/api/goals/:id/achievements/:achId', async (req, res) => {
 });
 
 // POST /api/goals/:id/achievements/upload — 上传目标成果文件
-app.post('/api/goals/:id/achievements/upload', upload.single('file'), async (req, res) => {
+app.post('/api/goals/:id/achievements/upload', authMiddleware, upload.single('file'), async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ error: '请选择文件' });
         const goalId = req.params.id;
@@ -1362,7 +1479,8 @@ app.post('/api/goals/:id/achievements/upload', upload.single('file'), async (req
                         req.file.mimetype.startsWith('video/') ? 'video' : 'file';
 
         // 获取现有的成果
-        const [goals] = await pool.query('SELECT achievements FROM goals WHERE id=?', [goalId]);
+        const [goals] = await pool.query('SELECT achievements FROM goals WHERE id=? AND user_id=?', [goalId, req.userId]);
+        if (goals.length === 0) return res.status(404).json({ error: '目标不存在' });
         let achievements = goals[0]?.achievements || [];
 
         const newAchievement = {
@@ -1376,8 +1494,8 @@ app.post('/api/goals/:id/achievements/upload', upload.single('file'), async (req
         achievements.push(newAchievement);
 
         await pool.query(
-            'UPDATE goals SET achievements=? WHERE id=?',
-            [JSON.stringify(achievements), goalId]
+            'UPDATE goals SET achievements=? WHERE id=? AND user_id=?',
+            [JSON.stringify(achievements), goalId, req.userId]
         );
 
         res.json({ success: true, achievement: newAchievement });
@@ -1482,12 +1600,12 @@ app.post('/api/ai/goal', async (req, res) => {
 
 
 // PATCH /api/schedules/:id/delay — 延期日程
-app.patch('/api/schedules/:id/delay', async (req, res) => {
+app.patch('/api/schedules/:id/delay', authMiddleware, async (req, res) => {
     try {
         const { newStartTime, newEndTime } = req.body;
         await pool.query(
-            'UPDATE schedules SET start_time=?, end_time=? WHERE id=?',
-            [newStartTime, newEndTime, req.params.id]
+            'UPDATE schedules SET start_time=?, end_time=? WHERE id=? AND user_id=?',
+            [newStartTime, newEndTime, req.params.id, req.userId]
         );
         res.json({ success: true });
     } catch (err) {
@@ -1531,7 +1649,7 @@ const REVIEW_PROMPT_TEMPLATE = `你是一位专业的个人效能教练，名叫
 当前时间：{CURRENT_TIME}`;
 
 // POST /api/ai/review — AI复盘对话
-app.post('/api/ai/review', async (req, res) => {
+app.post('/api/ai/review', authMiddleware, async (req, res) => {
     try {
         const { message, sessionId, startDate } = req.body;
         if (!message || !message.trim()) return res.status(400).json({ error: '请输入复盘内容' });
@@ -1554,15 +1672,15 @@ app.post('/api/ai/review', async (req, res) => {
             `SELECT COUNT(*) as total,
                     SUM(completed) as completedCount,
                     SUM(TIMESTAMPDIFF(MINUTE, start_time, end_time)) as totalMinutes
-             FROM schedules WHERE start_time >= ? AND start_time < ?`,
-            [mondayStr, endDate]
+             FROM schedules WHERE user_id = ? AND start_time >= ? AND start_time < ?`,
+            [req.userId, mondayStr, endDate]
         );
         let cancelledCount = 0;
         try {
             const [cancelRows] = await pool.query(
                 `SELECT SUM(CASE WHEN cancel_reason IS NOT NULL THEN 1 ELSE 0 END) as cancelledCount
-                 FROM schedules WHERE start_time >= ? AND start_time < ?`,
-                [mondayStr, endDate]
+                 FROM schedules WHERE user_id = ? AND start_time >= ? AND start_time < ?`,
+                [req.userId, mondayStr, endDate]
             );
             cancelledCount = cancelRows[0].cancelledCount || 0;
         } catch (e) { /* cancel_reason column doesn't exist yet */ }
@@ -1570,17 +1688,17 @@ app.post('/api/ai/review', async (req, res) => {
         const [byCategory] = await pool.query(
             `SELECT category, COUNT(*) as count,
                     SUM(TIMESTAMPDIFF(MINUTE, start_time, end_time)) as totalMinutes
-             FROM schedules WHERE start_time >= ? AND start_time < ?
+             FROM schedules WHERE user_id = ? AND start_time >= ? AND start_time < ?
              GROUP BY category ORDER BY totalMinutes DESC`,
-            [mondayStr, endDate]
+            [req.userId, mondayStr, endDate]
         );
 
         const [byDay] = await pool.query(
             `SELECT DATE(start_time) as date, COUNT(*) as count,
                     SUM(TIMESTAMPDIFF(MINUTE, start_time, end_time)) as totalMinutes
-             FROM schedules WHERE start_time >= ? AND start_time < ?
+             FROM schedules WHERE user_id = ? AND start_time >= ? AND start_time < ?
              GROUP BY DATE(start_time) ORDER BY date`,
-            [mondayStr, endDate]
+            [req.userId, mondayStr, endDate]
         );
         const byDayWithLabels = byDay.map(d => ({
             ...d,
@@ -1589,9 +1707,9 @@ app.post('/api/ai/review', async (req, res) => {
 
         const [byEnergy] = await pool.query(
             `SELECT energy_level, COUNT(*) as count
-             FROM schedules WHERE start_time >= ? AND start_time < ?
+             FROM schedules WHERE user_id = ? AND start_time >= ? AND start_time < ?
              GROUP BY energy_level`,
-            [mondayStr, endDate]
+            [req.userId, mondayStr, endDate]
         );
 
         const [byPeriod] = await pool.query(
@@ -1604,16 +1722,16 @@ app.post('/api/ai/review', async (req, res) => {
                     ELSE 'night'
                 END as period,
                 COUNT(*) as count
-             FROM schedules WHERE start_time >= ? AND start_time < ?
+             FROM schedules WHERE user_id = ? AND start_time >= ? AND start_time < ?
              GROUP BY period`,
-            [mondayStr, endDate]
+            [req.userId, mondayStr, endDate]
         );
 
         const [hourlyRows] = await pool.query(
             `SELECT HOUR(start_time) as hour, COUNT(*) as count
-             FROM schedules WHERE start_time >= ? AND start_time < ?
+             FROM schedules WHERE user_id = ? AND start_time >= ? AND start_time < ?
              GROUP BY HOUR(start_time)`,
-            [mondayStr, endDate]
+            [req.userId, mondayStr, endDate]
         );
         const hourlyDistribution = Array(24).fill(0);
         hourlyRows.forEach(r => { hourlyDistribution[r.hour] = r.count; });
@@ -1699,16 +1817,16 @@ app.post('/api/ai/review', async (req, res) => {
 // ========================================
 
 // GET /api/schedules/by-context — 按情境筛选日程
-app.get('/api/schedules/by-context', async (req, res) => {
+app.get('/api/schedules/by-context', authMiddleware, async (req, res) => {
     try {
         const { context } = req.query;
         let query, params;
         if (context) {
-            query = `SELECT *, start_time AS start, end_time AS \`end\` FROM schedules WHERE context_type = ? ORDER BY start_time DESC`;
-            params = [context];
+            query = `SELECT *, start_time AS start, end_time AS \`end\` FROM schedules WHERE user_id = ? AND context_type = ? ORDER BY start_time DESC`;
+            params = [req.userId, context];
         } else {
-            query = `SELECT *, start_time AS start, end_time AS \`end\` FROM schedules ORDER BY start_time DESC`;
-            params = [];
+            query = `SELECT *, start_time AS start, end_time AS \`end\` FROM schedules WHERE user_id = ? ORDER BY start_time DESC`;
+            params = [req.userId];
         }
         const [rows] = await pool.query(query, params);
         res.json(rows);
@@ -1718,7 +1836,7 @@ app.get('/api/schedules/by-context', async (req, res) => {
 });
 
 // GET /api/weather/alerts — 检测天气与日程冲突
-app.get('/api/weather/alerts', async (req, res) => {
+app.get('/api/weather/alerts', authMiddleware, async (req, res) => {
     try {
         const city = req.query.city || 'Beijing';
         const now = new Date();
@@ -1731,9 +1849,9 @@ app.get('/api/weather/alerts', async (req, res) => {
         // 查询户外日程
         const [outdoorSchedules] = await pool.query(
             `SELECT id, title, start_time FROM schedules
-             WHERE context_type = 'outdoor' AND start_time >= ? AND start_time < ?
+             WHERE user_id = ? AND context_type = 'outdoor' AND start_time >= ? AND start_time < ?
              ORDER BY start_time`,
-            [dateStr, endStr]
+            [req.userId, dateStr, endStr]
         );
 
         if (outdoorSchedules.length === 0) {
@@ -1800,7 +1918,7 @@ app.get('/api/weather/alerts', async (req, res) => {
 // ========================================
 
 // PATCH /api/schedules/:id/emotion — 记录情绪
-app.patch('/api/schedules/:id/emotion', async (req, res) => {
+app.patch('/api/schedules/:id/emotion', authMiddleware, async (req, res) => {
     try {
         const { emotion } = req.body;
         const validEmotions = ['great', 'good', 'neutral', 'tired', 'stressed'];
@@ -1808,8 +1926,8 @@ app.patch('/api/schedules/:id/emotion', async (req, res) => {
             return res.status(400).json({ error: '无效的情绪值，可选: ' + validEmotions.join(', ') });
         }
         await pool.query(
-            'UPDATE schedules SET emotion = ? WHERE id = ?',
-            [emotion, req.params.id]
+            'UPDATE schedules SET emotion = ? WHERE id = ? AND user_id = ?',
+            [emotion, req.params.id, req.userId]
         );
         res.json({ success: true });
     } catch (err) {
